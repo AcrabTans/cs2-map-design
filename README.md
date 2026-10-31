@@ -1,6 +1,8 @@
 # 天际线Ⅱ地图规划设计器
 
-**本项目采用许愿式编程**
+<p align="center">
+  <img src="docs/images/wish-programming-title.svg" width="700" alt="本项目采用许愿式编程">
+</p>
 
 ![向 GPT 龙娘许愿，让城市规划蓝图化为现实](docs/images/wish-driven-programming.png)
 
@@ -11,6 +13,12 @@
 当前版本：**v0.1.0** · **Windows x64** · **绿色免安装**
 
 [下载最新版](https://github.com/AcrabTans/cs2-map-design/releases/latest) · [完整使用手册](docs/USER_GUIDE.md) · [问题反馈](https://github.com/AcrabTans/cs2-map-design/issues)
+
+## 程序界面
+
+![地图规划设计器实际界面：分层显示、路网与建筑布局，以及小类配色设置](docs/images/map-design-screenshot.png)
+
+*实际程序截图：左侧管理图层，中间编辑地图，右侧调整分类属性与配色。*
 
 ## 为什么做这个工具
 
