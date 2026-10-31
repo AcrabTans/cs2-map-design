@@ -120,6 +120,8 @@ MapDesign-v0.1.0-win-x64/
 
 ### Carto 文件夹
 
+[Carto 项目与说明](https://github.com/taipei-native/Carto)：用于导出《Cities: Skylines II》的空间矢量与地形栅格数据。
+
 导入整个 Carto 导出目录，保留 Shapefile 配套文件：`.shp`、`.dbf`、`.prj`、`.cpg` 等。典型结构：
 
 ```text
@@ -230,6 +232,24 @@ projects/我的地图/
 
 选择“文件 → 导出 PNG…”，分辨率可选 **2048、4096、8192**。导出完整正方形地图，包含当前可见图层，不含编辑节点。高分辨率导出比屏幕显示需要更多内存和时间。
 
+### 将 PNG 用于 Image Overlay
+
+[Image Overlay（Paradox Mods）](https://mods.paradoxplaza.com/mods/74539/Windows) 可把 PNG 图片叠加到游戏地图上，作为建设参考，并可调整图片的位置、大小、旋转和透明度。
+
+1. 在本工具中设置需要显示的图层，从“文件 → 导出 PNG…”导出完整地图。
+2. 将 PNG 复制到游戏用户数据目录下的 `Overlays` 文件夹：
+
+   ```text
+   %USERPROFILE%\AppData\LocalLow\Colossal Order\Cities Skylines II\Overlays
+   ```
+
+3. 在游戏中启用 Image Overlay，在模组设置里刷新文件列表并选择这张 PNG。
+4. 按 `Ctrl+O` 显示或隐藏叠加图，按需调整透明度及位置，对照规划进行建设。
+
+完整地图导出可选 2048、4096、8192 分辨率。Image Overlay 默认以边长 14.336 km 的原版可玩区域居中显示；保持工程范围与游戏地图一致，更便于对齐。这是规划图片叠加显示，实际道路和建筑仍由你在游戏中建设。更多设置见 [Image Overlay 作者说明](https://github.com/algernon-A/ImageOverlay/blob/master/README.md)。
+
+**Carto 导出地图数据 → 本工具规划 → 导出 PNG → Image Overlay 叠加到游戏地图。**
+
 ### Carto / Shapefile
 
 选择“文件 → 导出 Carto…”。输出 ZIP 中包含七组 Shapefile 及配套文件，可选携带已有原始地形数据。
@@ -269,7 +289,7 @@ projects/我的地图/
 
 发布目录旁的 `SHA256SUMS.txt` 用于校验 ZIP；解压目录内 `MANIFEST.sha256` 用于校验包内文件。校验清单不包含其自身，也不包含首次运行后新增的缓存和个人数据。
 
-根目录 `LICENSE` 是随 Electron 运行环境提供的许可证，**不代表整个应用源码采用该许可证**。其他组件声明见 `THIRD_PARTY_NOTICES.md` 和依赖目录中的许可证。本次打包未额外授予应用源码开源许可，也未包含可再分发的游戏或模组资产。
+根目录 `LICENSE` 是随 Electron 运行环境提供的许可证，**不代表整个应用源码采用该许可证**。其他组件声明见 `THIRD_PARTY_NOTICES.md` 和依赖目录中的许可证。本项目代码采用 MIT 许可证，见应用许可证 APPLICATION_LICENSE.txt；第三方依赖保留各自许可证。发布包不包含游戏或模组资产。
 
 反馈时请提供程序版本、Windows 版本、操作步骤、错误信息，以及经自行检查可分享的最小复现工程。模型缺失问题需说明是否携带 `.assets`；不要只发工程截图代替错误信息。日志和工程可能含本地路径及规划内容，分享前请自行检查。
 

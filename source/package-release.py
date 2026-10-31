@@ -54,11 +54,14 @@ def main():
     print('Extractor dependency, GUI self-test and 8 checks passed', flush=True)
     OUT.mkdir(exist_ok=True)
     TARGET.mkdir()
-    runtime_names = ['MapDesign.exe', 'LICENSE', 'LICENSES.chromium.html', 'version', 'icudtl.dat',
+    runtime_names = ['MapDesign.exe', 'LICENSES.chromium.html', 'version', 'icudtl.dat',
                      'vk_swiftshader_icd.json']
     runtime_names += [p.name for p in APP.iterdir() if p.is_file() and p.suffix in ('.dll', '.pak', '.bin')]
     for name in sorted(set(runtime_names)):
         shutil.copy2(APP / name, TARGET / name)
+    electron_license=APP / 'docs/licenses/Electron-LICENSE.txt'
+    shutil.copy2(electron_license if electron_license.exists() else APP / 'LICENSE', TARGET / 'LICENSE')
+    shutil.copy2(APP / 'APPLICATION_LICENSE.txt', TARGET / 'APPLICATION_LICENSE.txt')
     copy_tree(APP / 'locales', TARGET / 'locales')
     copy_tree(APP / 'resources', TARGET / 'resources')
     bundled_tool = TARGET / 'tools' / '资产提取器'
@@ -119,7 +122,7 @@ def main():
 
 Python 包名、版本、元数据位置见 docs/THIRD_PARTY_COMPONENTS.json。依赖目录中的原始声明文件一并保留。
 
-根目录 LICENSE 是 Electron 的声明，不是本地图设计器全部源码的开源许可证。本发布未额外指定应用源码开源许可。发布包不含游戏或第三方模组资产。
+根目录 LICENSE 是 Electron 的声明，不是本地图设计器全部源码的开源许可证。本项目代码采用 MIT 许可证，见 APPLICATION_LICENSE.txt。第三方组件保留原始许可。发布包不含游戏或第三方模组资产。
 ''', encoding='utf-8')
     info = {'product': '天际线Ⅱ地图规划设计器', 'version': VERSION, 'platform': 'win32-x64',
             'releaseDate': '2026-10-31', 'builtAtUtc': datetime.now(timezone.utc).isoformat(),

@@ -1,5 +1,9 @@
 # 天际线Ⅱ地图规划设计器
 
+**本项目采用许愿式编程**
+
+![向 GPT 龙娘许愿，让城市规划蓝图化为现实](docs/images/wish-driven-programming.png)
+
 **先规划，再建设。**
 
 一款面向《Cities: Skylines II》的独立地图规划工具。以底图和 Carto 导出数据为基础，在二维地图上设计片区、路网和功能区块，按真实尺寸摆放建筑资产，并通过三维预览检查空间关系。
@@ -35,6 +39,8 @@
 
 ### 从游戏数据开始
 
+[Carto](https://github.com/taipei-native/Carto) 是《Cities: Skylines II》的空间数据导出模组，可将游戏中的道路、建筑、片区、用地区划等导出为矢量数据，并导出高程与水深栅格。本工具读取其中的 Shapefile 和 GeoTIFF，让规划以当前游戏地图为基础。
+
 - 导入 Carto 文件夹，识别七类 Shapefile 及配套属性。
 - 将路网中心线与轮廓、建筑轮廓与 POI 尽可能配对。
 - 识别 `Elevation.tif` 和 `Depth.tif`，显示高程、水体及纯色陆水简图。
@@ -64,6 +70,24 @@
 - 大型模型以工程旁的独立资源文件保存，减少重复嵌入。
 - 导出 **2048 / 4096 / 8192** 分辨率的完整地图 PNG。
 - 导出七组 Shapefile 及配套文件，可选携带已有原始地形数据。
+
+## 配合 Image Overlay，在游戏中查看规划图
+
+[Image Overlay（Paradox Mods）](https://mods.paradoxplaza.com/mods/74539/Windows) 可把 PNG 图片叠加到游戏地图上，作为建设参考，并可调整图片的位置、大小、旋转和透明度。
+
+1. 在本工具中设置需要显示的图层，从“文件 → 导出 PNG…”导出完整地图。
+2. 将 PNG 复制到游戏用户数据目录下的 `Overlays` 文件夹：
+
+   ```text
+   %USERPROFILE%\AppData\LocalLow\Colossal Order\Cities Skylines II\Overlays
+   ```
+
+3. 在游戏中启用 Image Overlay，在模组设置里刷新文件列表并选择这张 PNG。
+4. 按 `Ctrl+O` 显示或隐藏叠加图，按需调整透明度及位置，对照规划进行建设。
+
+完整地图导出可选 2048、4096、8192 分辨率。Image Overlay 默认以边长 14.336 km 的原版可玩区域居中显示；保持工程范围与游戏地图一致，更便于对齐。这是规划图片叠加显示，实际道路和建筑仍由你在游戏中建设。更多设置见 [Image Overlay 作者说明](https://github.com/algernon-A/ImageOverlay/blob/master/README.md)。
+
+**Carto 导出地图数据 → 本工具规划 → 导出 PNG → Image Overlay 叠加到游戏地图。**
 
 ## 快速开始
 
@@ -105,6 +129,8 @@
 
 ## 问题反馈
 
+> 反馈归反馈，修复随缘：我不一定有空修；有空修的时候，也得看看 GPT 龙娘的心情。欢迎提建议，但不承诺修复时间。
+
 欢迎通过 Issues 提交问题和建议。报告问题时，请尽量提供：
 
 - 程序版本、Windows 版本，以及与问题相关的硬件信息。
@@ -118,7 +144,9 @@
 
 当前为首次绿色版发布，功能和数据兼容性仍在逐步完善。发布包附带版本记录、第三方组件说明和 SHA-256 校验文件。
 
-Electron、Chromium、Three.js、Python 及资产解析依赖的许可证随发布包保留。根目录随运行环境提供的 `LICENSE` 不代表整个应用源码采用相同许可证；具体范围请查看发布包的 `THIRD_PARTY_NOTICES.md`。
+Electron、Chromium、Three.js、Python 及资产解析依赖的许可证随发布包保留。本仓库根目录 [LICENSE](LICENSE) 为本项目的 MIT 许可证，允许使用、修改、分发及商业使用，需保留版权及许可声明。第三方组件仍按各自许可证使用，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+v0.1.0 运行包根目录的 `LICENSE` 为 Electron 许可证；该版本的应用许可证另附于 Release 的 `APPLICATION_LICENSE.txt`，后续运行包也会附带此文件。
 
 本项目是独立工具，不是《Cities: Skylines II》官方产品。
 
@@ -135,4 +163,4 @@ npm test
 
 需要 Node.js 22 或以上；无需安装 npm 依赖。先构建以生成桌面接口检查需要的文件。运行桌面程序或打包 release 时，先从 Releases 下载绿色版并将运行文件解压到仓库根目录，保留本仓库 `source`。提取器依赖与 Python 运行环境由绿色版提供，不纳入 Git。
 
-测试使用合成几何，不包含游戏或模组建筑投影。当前未为应用源码另行指定开源许可证；第三方组件保留各自许可证。
+测试使用合成几何，不包含游戏或模组建筑投影。本项目代码采用 [MIT License](LICENSE)；第三方组件保留各自许可证。

@@ -13,4 +13,4 @@
 
 Python 包名、版本、元数据位置见 docs/THIRD_PARTY_COMPONENTS.json。依赖目录中的原始声明文件一并保留。
 
-根目录 LICENSE 是 Electron 的声明，不是本地图设计器全部源码的开源许可证。本发布未额外指定应用源码开源许可。发布包不含游戏或第三方模组资产。
+本仓库根目录 LICENSE 为本项目 MIT 许可证，APPLICATION_LICENSE.txt 为同一协议副本。Electron 原始许可见 docs/licenses/Electron-LICENSE.txt。v0.1.0 运行包根目录 LICENSE 仍是 Electron 的许可，应用许可另附于 Release。其他依赖保留原始版权和许可，不因本项目采用 MIT 而改变。发布包不含游戏或第三方模组资产。
