@@ -81,7 +81,7 @@ export function districtAt(project,p){return project.features.find(f=>f.kind==='
 export function visibleInPlanView(project,f){const mode=project.settings.planView||'detail';if(f.kind==='district')return project.settings.districtsVisible!==false;if(f.kind==='zone')return mode==='detail'||['station','depot','civic'].includes(f.type)||f.name==='生态绿地';if(f.kind==='road'&&mode==='districts'&&['local','path','metro','bus'].includes(f.type))return false;return true;}
 
 // Editor v2 keeps legacy feature geometry untouched; missing metadata has defaults.
-export const GROUPS=[['area','地块 Area'],['network','路网 Network'],['building','建筑 Building'],['route','交通 Route'],['terrain','地形 Terrain'],['zoning','用地 Zoning']];
+export const GROUPS=[['area','地块 Area'],['network','路网 Network'],['building','建筑 Building'],['route','交通 Route'],['zoning','用地 Zoning'],['terrain','地形 Terrain']];
 export const BLOCK_CLASSES=[
  ['residential','居住','#70a485'],['commercial','商业','#d9a15e'],['mixed','商住混合','#68a6a2'],
  ['office','办公','#7d9cce'],['industrial','工业与产业','#b99973'],['transport','交通与物流','#9595b5'],
@@ -90,6 +90,23 @@ export const BLOCK_CLASSES=[
 ];
 export const BUILDINGS=[['education','教育'],['residential','住宅'],['hospital','医疗'],['police','警务'],['fire','消防'],['municipal','市政'],['industry','产业'],['commercial','商业'],['sports','文化体育'],['landscape','景观'],['other','其他建筑']];
 export const buildingCategory=type=>({school:'education',university:'education',government:'municipal',utility:'municipal',transport:'municipal'}[type]||type);
+export const MUNICIPAL_TYPES=[['rail-facilities','铁路车站与车辆段'],['air-facilities','机场与航空设施'],['water-facilities','港口与水运设施'],['transit-facilities','公交与地铁设施'],['utilities','供电、水务与环卫'],['civic','政务与其他市政建筑'],['rail-stops','火车站牌'],['air-stops','航空停靠点'],['transit-stops','公交、地铁等站点'],['water-stops','水运停靠点'],['traffic-lights','红绿灯'],['other-points','其他市政点位']];
+export function municipalClass(f){
+ if(f?.kind!=='building'||buildingCategory(f.type)!=='municipal')return null;
+ if(isTrafficLight(f))return 'traffic-lights';
+ const cat=String(f.attributes?.Category||f.poiAttributes?.Category||''),text=[f.name,cat,f.attributes?.Asset,f.outlineAttributes?.Asset].filter(Boolean).join(' ');
+ if(/Stop.*(?:Train|Rail)|火车站牌/i.test(cat+' '+f.name))return 'rail-stops';
+ if(/Stop.*(?:Airplane|Helicopter)|Helipad/i.test(cat))return 'air-stops';
+ if(/Stop.*(?:Ship|Ferry|Boat)/i.test(cat))return 'water-stops';
+ if(/Stop|站位预留|地铁站点/i.test(cat+' '+f.name))return 'transit-stops';
+ if(/机场|航站|航空|停机|机坪|airport|airfield|hangar/i.test(text))return 'air-facilities';
+ if(/火车|铁路|轨道总站|railway|railroad|train.*(?:station|depot)/i.test(text))return 'rail-facilities';
+ if(/港口|码头|船坞|harbo[u]?r|seaport|ferry/i.test(text))return 'water-facilities';
+ if(/公交|地铁|换乘|巴士|bus|subway|metro/i.test(text))return 'transit-facilities';
+ if(/水厂|取水|泵站|污水|变电|配电|发电|供电|电厂|垃圾|回收|环卫|water|sewage|power|electric|garbage|recycl/i.test(text))return 'utilities';
+ return f.geometryType==='point'?'other-points':'civic';
+}
+export const municipalVisible=(editor,id)=>id!=='traffic-lights'?editor.municipalVisibility?.[id]!==false:editor.municipalVisibility?.[id]===true;
 export const groupForLayer=key=>key==='zone'||key.startsWith('district:')?'area':key.startsWith('road:')?'network':key.split(':')[0];
 export const layerKeysForGroup=group=>group==='area'?['district:large','district:small','zone','district:tile']:group==='network'?[...ROADS.filter(r=>r.id!=='bus').map(r=>'road:'+r.id),'road:interchange']:group==='building'?BUILDINGS.map(([id])=>'building:'+id):group==='route'?['route:bus','route:metro','route:train','route:water','route:air','route:other']:group==='terrain'?['terrain:elevation','terrain:depth','terrain:landwater']:group==='zoning'?['zoning:boundary']:[];
 export function blockClass(f){
@@ -124,7 +141,7 @@ export function roadStyleColors(color){
 }
 export function editorDefaults(){
  const keys=[...GROUPS.flatMap(([g])=>layerKeysForGroup(g)),'building','road:bus'];
- return {groups:Object.fromEntries(GROUPS.map(([k])=>[k,true])),layers:Object.fromEntries(keys.map(k=>[k,{visible:k!=='terrain:landwater',locked:false,manual:true,ai:true}])),roadStyles:Object.fromEntries(ROADS.map(r=>[r.id,{...roadStyleColors(r.color),width:r.width,corridor:r.corridor}])),structures:{ground:true,elevated:true,bridge:true,tunnel:true},simpleTerrain:{landColor:'#d8edcf',waterColor:'#66b8e5',opacity:100},networkOutlines:false,networkStyleVersion:2,widthMode:'actual',railSegment:24,routeWidth:2,pngSize:4096,labelSize:11};
+ return {municipalVisibility:Object.fromEntries(MUNICIPAL_TYPES.map(([id])=>[id,id!=='traffic-lights'])),visibilityDefaultsVersion:1,origins:{carto:true,planning:true},lockCarto:true,showBuiltPlanning:false,groups:Object.fromEntries(GROUPS.map(([k])=>[k,k!=='zoning'])),groupLabels:Object.fromEntries(GROUPS.map(([k])=>[k,false])),layers:Object.fromEntries(keys.map(k=>[k,{visible:!['terrain:landwater','building:municipal'].includes(k),locked:false,manual:true,ai:true,labelsVisible:false}])),roadStyles:Object.fromEntries(ROADS.map(r=>[r.id,{...roadStyleColors(r.color),width:r.width,corridor:r.corridor}])),structures:{ground:true,elevated:true,bridge:true,tunnel:true},simpleTerrain:{landColor:'#d8edcf',waterColor:'#66b8e5',opacity:100},networkOutlines:false,networkStyleVersion:2,widthMode:'actual',railSegment:24,routeWidth:2,pngSize:4096,labelSize:11};
 }
 export const editorSettings=p=>p.settings.editor||editorDefaults();
 export function isTrafficLight(f){
@@ -132,12 +149,19 @@ export function isTrafficLight(f){
  const category=String(f.attributes?.Category||'').replace(/[\s_-]/g,'').toLowerCase();
  return category==='trafficlight'||(f.geometryType==='point'&&/traffic[\s_-]*light|红绿灯|交通信号灯/i.test(f.name||''));
 }
+export const originForFeature=f=>Array.isArray(f.carto?.layers)&&f.carto.layers.length?'carto':'planning';
+export const lockedInEditor=(p,f)=>editorSettings(p).layers[layerKey(f)]?.locked===true||(originForFeature(f)==='carto'&&editorSettings(p).lockCarto!==false);
 export function visibleInEditor(p,f){
- if(isTrafficLight(f))return false;
+ const municipal=municipalClass(f);if(municipal&&!municipalVisible(editorSettings(p),municipal))return false;
+ const settings=editorSettings(p);if(settings.origins?.[originForFeature(f)]===false)return false;if(originForFeature(f)==='planning'&&f.planningStatus==='built'&&settings.showBuiltPlanning!==true)return false;
  const e=editorSettings(p),g=groupForLayer(layerKey(f));
  if(f.kind==='note')return p.settings.notesVisible;
  const l=e.layers[layerKey(f)];
  return e.groups[g]!==false&&l?.visible!==false&&(f.kind!=='building'||e.layers.building.visible!==false)&&(f.kind!=='road'||e.structures[f.structure]!==false);
+}
+export function labelsVisibleInEditor(p,f){
+ const e=editorSettings(p),key=layerKey(f);
+ return p.settings.notesVisible!==false&&visibleInEditor(p,f)&&e.groupLabels?.[groupForLayer(key)]!==false&&e.layers[key]?.labelsVisible!==false;
 }
 export function pointInOrOn(p,poly){return pointInPolygon(p,poly)||nearestSegment(poly,p,true).distance<1e-5;}
 // Check each segment interval split by boundary intersections. Testing only nodes
@@ -182,6 +206,8 @@ export function validateEditorProject(clean,data){
   if(f.kind==='road'&&f.geometryType!==undefined&&!['line','polygon'].includes(f.geometryType))throw Error('路网几何类型无效');
   for(const key of ['additionalParts','outlineParts'])if(f[key]!==undefined){if(!Array.isArray(f[key])||f[key].length>1000||f[key].some(ps=>!Array.isArray(ps)||ps.length<3||ps.length>5000||ps.some(p=>!Array.isArray(p)||p.length!==2||p.some(n=>!Number.isFinite(n)||n<0||n>data.mapSize))))throw Error('Carto 多段轮廓无效');}
   for(const key of ['outlineAttributes','poiAttributes'])if(f[key]!==undefined){const a=f[key];if(!a||typeof a!=='object'||Array.isArray(a)||Object.keys(a).length>100||Object.entries(a).some(([k,v])=>k.length>100||v!==null&&!['string','number','boolean'].includes(typeof v)||typeof v==='number'&&!Number.isFinite(v)||typeof v==='string'&&v.length>20000))throw Error('Carto 附加属性无效');}
+  if(f.planningStatus!==undefined&&!['planned','built'].includes(f.planningStatus))throw Error('规划实施状态无效');
+  if(f.planningOrigin!==undefined&&(!f.planningOrigin||typeof f.planningOrigin.featureId!=='string'||f.planningOrigin.featureId.length>300||f.planningOrigin.dataset!==null&&typeof f.planningOrigin.dataset!=='string'))throw Error('规划来源信息无效');
   if(f.carto!==undefined){const c=f.carto;if(!c||typeof c.dataset!=='string'||c.dataset.length>100||!Array.isArray(c.layers)||c.layers.some(v=>typeof v!=='string'||v.length>100)||c.layers.length>10||!Number.isInteger(c.recordId)||c.recordId<1||typeof c.crs!=='string'||typeof c.encoding!=='string'||!Array.isArray(c.frame)||c.frame.length!==4||!c.frame.every(Number.isFinite))throw Error('Carto 来源信息无效');}
   if(f.kind==='zone'&&f.category!==undefined&&!BLOCK_CLASSES.some(c=>c[0]===f.category))throw Error('功能区块大类无效');
   if(f.fillStyle!==undefined&&!['solid','hatch','dots'].includes(f.fillStyle))throw Error('填充方式无效');
@@ -213,6 +239,10 @@ export function validateEditorProject(clean,data){
  clean.rasters=structuredClone(rasters);
  const e=editorDefaults(),src=data.settings?.editor;
  if(src){
+  for(const k of ['carto','planning'])if(typeof src.origins?.[k]==='boolean')e.origins[k]=src.origins[k];
+  if(typeof src.lockCarto==='boolean')e.lockCarto=src.lockCarto;
+  for(const [id]of MUNICIPAL_TYPES)if(typeof src.municipalVisibility?.[id]==='boolean')e.municipalVisibility[id]=src.municipalVisibility[id];
+  if(typeof src.showBuiltPlanning==='boolean')e.showBuiltPlanning=src.showBuiltPlanning;
   if(!('area' in (src.groups||{}))){
    for(const k of ['district:large','district:small'])e.layers[k].visible=src.groups?.district!==false;
    e.layers.zone.visible=src.groups?.zone!==false;
@@ -220,9 +250,11 @@ export function validateEditorProject(clean,data){
    if(src.layers?.building)for(const k of layerKeysForGroup('building'))Object.assign(e.layers[k],src.layers.building);
    if(src.layers?.['road:bus'])Object.assign(e.layers['route:bus'],src.layers['road:bus']);
   }
-  if(!('zoning' in (src.groups||{}))){e.groups.zoning=src.groups?.area!==false;e.layers['zoning:boundary'].visible=src.layers?.zone?.visible!==false;e.layers['zoning:boundary'].locked=src.layers?.zone?.locked===true;}
+  if(!('zoning' in (src.groups||{}))){e.layers['zoning:boundary'].visible=src.layers?.zone?.visible!==false;e.layers['zoning:boundary'].locked=src.layers?.zone?.locked===true;}
+  for(const [k,v]of Object.entries(src.groupLabels||{}))if(k in e.groupLabels&&typeof v==='boolean')e.groupLabels[k]=v;
   for(const [k,v]of Object.entries(src.groups||{}))if(k in e.groups&&typeof v==='boolean')e.groups[k]=v;
-  for(const [k,v]of Object.entries(src.layers||{}))if(k in e.layers)for(const a of ['visible','locked','manual','ai'])if(typeof v[a]==='boolean')e.layers[k][a]=v[a];
+  for(const [k,v]of Object.entries(src.layers||{}))if(k in e.layers)for(const a of ['visible','locked','manual','ai','labelsVisible'])if(typeof v[a]==='boolean')e.layers[k][a]=v[a];
+  if(src.visibilityDefaultsVersion!==1){e.groups.zoning=false;e.layers['building:municipal'].visible=false;}
   for(const [k,v]of Object.entries(src.layers||{}))if(k in e.layers&&v.color!==undefined){if(!color(v.color))throw Error('图层颜色无效');e.layers[k].color=v.color;}
   if(!('area' in (src.groups||{}))){if(src.groups?.district===false)for(const k of ['district:large','district:small'])e.layers[k].visible=false;if(src.groups?.zone===false)e.layers.zone.visible=false;}
   const oldRoadColors={rail:['#806c88'],waterway:['#288fa9'],highway:['#c17c45','#24934c'],arterial:['#ce9b45','#f8c454'],secondary:['#6b9685','#e8ad49'],local:['#6d99b1','#f5f8fa'],path:['#a2ad85','#9caba9'],metro:['#c67d97','#8b50c7'],bus:['#4eabb1']};

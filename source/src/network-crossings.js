@@ -19,7 +19,7 @@ function crossingPoint(a,b,c,d){
  return t>=-crossingEpsilon&&t<=1+crossingEpsilon&&s>=-crossingEpsilon&&s<=1+crossingEpsilon?[a[0]+u[0]*Math.max(0,Math.min(1,t)),a[1]+u[1]*Math.max(0,Math.min(1,t))]:null;
 }
 export function buildNetworkCrossings(features){
- const segments=[],grid=new Map(),nodes=new Map(),cellSize=512;
+ const segments=[],grid=new Map(),nodes=new Map(),cellSize=128;
  for(const f of crossingRoads(features))for(const part of [f.points,...(f.additionalParts||[])])for(let i=1;i<part.length;i++){
   const a=part[i-1],b=part[i];if(crossingDistance(a,b)<crossingEpsilon)continue;
   segments.push({f,a,b,index:segments.length,minX:Math.min(a[0],b[0]),maxX:Math.max(a[0],b[0]),minY:Math.min(a[1],b[1]),maxY:Math.max(a[1],b[1])});

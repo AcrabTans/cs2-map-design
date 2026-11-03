@@ -1,4 +1,5 @@
-import {SIZE,ROADS,prepareEditor,pointInPolygon,layerKey,ZONES,BUILDINGS,buildingCategory} from './model.js';
+import {createPlanningProject} from './planning.js';
+import {SIZE,ROADS,prepareEditor,pointInPolygon,layerKey,groupForLayer,originForFeature,ZONES,BUILDINGS,buildingCategory} from './model.js';
 import {terrainType,readTerrainTiff,checkTerrainExtent,terrainPixels} from './terrain.js';
 
 const CARTO_LAYERS=['Area_Boundary','Network_Centerline','Network_Boundary','Building_Boundary','POI_Location','Route_Centerline','Zoning_Boundary'];
@@ -140,10 +141,12 @@ export async function inspectCartoFolder(files,{existingRasters=[]}={}){
 }
 export function mergeCartoImport(project,inspection,rasters){
  const p=structuredClone(project),sourceLayers=new Set(inspection.sourceLayers);let replaced=0;
+ const existing=new Set(p.features.filter(f=>f.carto).map(f=>f.carto.dataset));if(existing.size&&!existing.has(inspection.dataset))throw Error('地图范围或坐标系与现有 Carto 不同，请新建工程导入，避免错位覆盖规划');
+ if(p.features.some(f=>originForFeature(f)==='planning')){const planned=createPlanningProject(p).project.features;p.features=[...p.features.filter(f=>originForFeature(f)==='carto'),...planned];}
  p.features=p.features.filter(f=>{const replace=f.carto?.dataset===inspection.dataset&&f.carto.layers.some(l=>sourceLayers.has(l));if(replace)replaced++;return !replace;});
  p.features.push(...structuredClone(inspection.features));
  for(const r of rasters){p.rasters=p.rasters.filter(x=>x.id!==r.id);p.rasters.push(r);}
- const next=prepareEditor(p);for(const f of inspection.features){if(f.kind==='note'){next.settings.notesVisible=true;continue;}const key=layerKey(f);next.settings.editor.groups[key.startsWith('district:')||key==='zone'?'area':f.kind==='road'?'network':f.kind==='route'?'route':'building']=true;next.settings.editor.layers[key].visible=key!=='district:tile';}
+ const next=prepareEditor(p);next.settings.editor.origins.carto=true;for(const f of inspection.features){if(f.kind==='note'){next.settings.notesVisible=true;continue;}const key=layerKey(f),group=groupForLayer(key);if(group!=='zoning')next.settings.editor.groups[group]=true;if(key!=='building:municipal')next.settings.editor.layers[key].visible=key!=='district:tile';}
  if(rasters.length){next.settings.editor.groups.terrain=true;if(rasters.some(r=>r.id==='depth'))next.settings.editor.layers['terrain:landwater'].visible=true;}
  return {project:next,replaced};
 }

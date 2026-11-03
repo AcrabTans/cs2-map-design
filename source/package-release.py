@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib, json, os, re, shutil, subprocess, sys, zipfile
 from datetime import datetime, timezone
 
-VERSION = '0.1.0'
+VERSION = '0.2.0'
 SOURCE = Path(__file__).resolve().parent
 APP = SOURCE.parent
 OUT = APP.parent / 'releases'
@@ -79,26 +79,8 @@ def main():
     shutil.copy2(SOURCE / 'src/vendor/three-LICENSE.txt', licenses / 'Three.js-LICENSE.txt')
     shutil.copy2(SOURCE / 'RELEASE_README.md', TARGET / 'README.md')
     (bundled_tool / '使用说明.md').write_text('# 内置资产提取器\n\n从地图程序“资产 → 资产提取器…”启动。\n完整说明见程序根目录 README.md 第 7 节。\n默认导出位置是本文件夹的 output，缓存和日志在工作缓存。\n', encoding='utf-8')
-    (TARGET / 'CHANGELOG.md').write_text('''# 版本记录
-
-## v0.1.0 · 2026-10-31
-
-首次绿色版发布，支持 Windows x64。
-
-- 独立桌面菜单、原生文件选择、手动工程保存及另存为。
-- Area、Network、Building、Route、Terrain、Zoning 六大类图层。
-- 多底图、Carto 文件夹与地形栅格导入，七组 Shapefile 和整图 PNG 导出。
-- 二维节点编辑、吸附、测距、网格、道路层级交叉与立交预留范围。
-- 小类统一配色、桥隧色阶、铁路组合线及运营细线路。
-- 建筑资产投影摆放、来源编号、占地高度及容量信息。
-- 内置本地资产提取器，按需输出投影、LOD2、LOD1。
-- 资产包批量管理与未使用包选择，保护已摆放建筑。
-- 三维只读地形与建筑预览，LOD 按需读取，关闭后释放图形资源。
-- 二维视野更新与全图重建分离，关闭图层跳过绘制，红绿灯不显示。
-- 空白、无个人数据的发布包，附第三方声明和文件校验清单。
-
-已知限制见 README；本版不含游戏写回、自动更新或万栋建筑性能保证。
-''', encoding='utf-8')
+    shutil.copy2(SOURCE / 'RELEASE_CHANGELOG.md', TARGET / 'CHANGELOG.md')
+    shutil.copy2(SOURCE / 'BUILTIN_ASSETS.md', TARGET / 'docs' / 'BUILTIN_ASSETS.md')
     components = []
     for metadata in sorted(bundled_tool.rglob('*.dist-info/METADATA')):
         text = metadata.read_text(encoding='utf-8', errors='replace')
@@ -122,18 +104,18 @@ def main():
 
 Python 包名、版本、元数据位置见 docs/THIRD_PARTY_COMPONENTS.json。依赖目录中的原始声明文件一并保留。
 
-根目录 LICENSE 是 Electron 的声明，不是本地图设计器全部源码的开源许可证。本项目代码采用 MIT 许可证，见 APPLICATION_LICENSE.txt。第三方组件保留原始许可。发布包不含游戏或第三方模组资产。
+根目录 LICENSE 是 Electron 的声明，不是本地图设计器全部源码的开源许可证。本项目代码采用 MIT 许可证，见 APPLICATION_LICENSE.txt。第三方组件保留原始许可。发布包包含本体建筑派生投影及部分 LOD2 数据，其权利归原权利人，不适用程序 MIT 许可。不含原始游戏资源包或第三方模组资产。
 ''', encoding='utf-8')
     info = {'product': '天际线Ⅱ地图规划设计器', 'version': VERSION, 'platform': 'win32-x64',
-            'releaseDate': '2026-10-31', 'builtAtUtc': datetime.now(timezone.utc).isoformat(),
-            'electron': '45.2.1', 'personalDataIncluded': False, 'sourceIncluded': False,
+            'releaseDate': '2026-11-03', 'builtAtUtc': datetime.now(timezone.utc).isoformat(),
+            'electron': '45.2.1', 'personalDataIncluded': False, 'builtinAssets': {'total': 1013, 'extensions': 43, 'realLod2': 966, 'lod1': False}, 'sourceIncluded': False,
             'checks': {'mapTestsPassed': passed, 'extractorTestsPassed': 8,
                        'extractorDependencies': 'passed', 'extractorWindowSelfTest': 'passed'},
             'validationLimits': ['No clean-machine end-to-end GUI test of this archive', 'No 10000-building stress test']}
     (TARGET / 'release.json').write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding='utf-8')
     forbidden = {'.cs2map', '.cs2assets', '.cok', '.glb', '.tif', '.tiff', '.log', '.pyc'}
     for p in TARGET.rglob('*'):
-        if p.is_file() and p.suffix.lower() in forbidden:
+        if p.is_file() and p.suffix.lower() in forbidden and p.relative_to(TARGET).as_posix() != 'resources/app/assets/blob-lod2.glb':
             raise RuntimeError('Unexpected project/cache/asset in release: ' + str(p.relative_to(TARGET)))
         if p.is_symlink():
             raise RuntimeError('Unexpected link in release')

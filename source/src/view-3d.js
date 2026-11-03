@@ -1,3 +1,4 @@
+import {buildingPacksFor} from './building-assets.js';
 import {featureDisplayColor} from './model.js';
 import {nativeLodResources} from './native-lod.js';
 import {readTerrainTiff} from './terrain.js';
@@ -39,7 +40,7 @@ export class MapView3D{
   for(let y=0;y<N;y++)for(let x=0;x<N;x++){const a=y*(N+1)+x,b=a+1,c=a+N+1,d=c+1;indices.push(a,c,b,b,c,d);if(sampler.water([(x+.5)/N*size,(y+.5)/N*size]))water.push(a,c,b,b,c,d);}
   if(this.options.terrain){const terrain=new T.BufferGeometry();terrain.setAttribute('position',new T.Float32BufferAttribute(positions,3));terrain.setAttribute('color',new T.Float32BufferAttribute(colors,3));terrain.setIndex(indices);terrain.computeVertexNormals();const ground=new T.Mesh(terrain,new T.MeshStandardMaterial({vertexColors:true,roughness:1}));ground.visible=this.options.terrain;this.content.add(ground);}
   if(this.options.water&&water.length){const wp=positions.map((v,i)=>i%3===1?this.options.waterLevel+.15:v),g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(wp,3));g.setIndex(water);g.computeVertexNormals();this.content.add(new T.Mesh(g,new T.MeshStandardMaterial({color:'#3898b7',transparent:true,opacity:.72,roughness:.3,side:T.DoubleSide})));}
-  let modeled=0,fallback=0,errors=0;const packs=new Map((project.assetPacks||[]).map(p=>[p.id,p]));
+  let modeled=0,fallback=0,errors=0;const packs=new Map(buildingPacksFor(project).map(p=>[p.id,p]));
   for(const f of features){
    const a=f.assetPlacement;
    if(a&&this.options.buildings){const pack=packs.get(a.packId),center=f.poi,near=Math.hypot(center[0]-this.camera.position.x,center[1]-this.camera.position.z,this.camera.position.y)<2500,level=this.options.quality==='auto'?(near?'lod1':'lod2'):this.options.quality;let object=null;try{if(pack)object=await this.lodNode(pack,level,a.assetId)||await this.lodNode(pack,'lod2',a.assetId)||await this.lodNode(pack,'lod1',a.assetId);}catch{errors++;}

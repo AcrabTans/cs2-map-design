@@ -13,4 +13,7 @@
 
 Python 包名、版本、元数据位置见 docs/THIRD_PARTY_COMPONENTS.json。依赖目录中的原始声明文件一并保留。
 
-本仓库根目录 LICENSE 为本项目 MIT 许可证，APPLICATION_LICENSE.txt 为同一协议副本。Electron 原始许可见 docs/licenses/Electron-LICENSE.txt。v0.1.0 运行包根目录 LICENSE 仍是 Electron 的许可，应用许可另附于 Release。其他依赖保留原始版权和许可，不因本项目采用 MIT 而改变。发布包不含游戏或第三方模组资产。
+本仓库根目录 LICENSE 为本项目 MIT 许可证，APPLICATION_LICENSE.txt 为同一协议副本。Electron 原始许可见 docs/licenses/Electron-LICENSE.txt。v0.1.0 运行包根目录 LICENSE 仍是 Electron 的许可，应用许可另附于 Release。其他依赖保留原始版权和许可，不因本项目采用 MIT 而改变。发布包内置本体建筑派生数据，不含原始游戏资源包或第三方模组资产。
+
+
+本版附带从本机游戏提取的本体建筑二维轮廓及部分 LOD2 派生数据；相关权利归游戏及资产原权利人所有，不属于本项目 MIT 程序代码的许可范围。未附带原始 .cok 游戏资源包或第三方模组资产。

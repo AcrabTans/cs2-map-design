@@ -23,7 +23,7 @@ for(const level of levels){
  }
  for(const a of defs.assets){
   const selected=a.meshes.map(m=>{const base=stem(m.geometry).replace(/_LOD0$/,''),matches=geometries.get(base+'_'+level.toUpperCase())||[];return matches.length===1?matches[0]:null;});
-  const metadata={id:a.id,code:a.name,name:names['Assets.NAME['+a.name+']']||a.name,type:a.type,lot:a.lot,maxResidents:a.maxResidents,maxEmployees:a.maxEmployees,status:selected.every(Boolean)?'available':'missing',missingMainMeshes:a.meshes.filter((_,i)=>!selected[i]).map(m=>m.geometry)};
+  const metadata={id:a.name,code:a.name,name:names['Assets.NAME['+a.name+']']||a.name,type:a.type,lot:a.lot,maxResidents:a.maxResidents,maxEmployees:a.maxEmployees,status:selected.every(Boolean)?'available':'missing',missingMainMeshes:a.meshes.filter((_,i)=>!selected[i]).map(m=>m.geometry)};
   const children=[];
   if(metadata.status==='available'){
    for(let i=0;i<selected.length;i++){const m=a.meshes[i],q=m.rotation,v=m.position;children.push(doc.nodes.push({mesh:await mesh(selected[i]),translation:[v[0],v[1],-v[2]],rotation:[-q[0],-q[1],q[2],q[3]]})-1);}available++;

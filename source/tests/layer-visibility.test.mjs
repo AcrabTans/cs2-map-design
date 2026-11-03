@@ -15,7 +15,7 @@ test('old combined visibility migrates without showing previously hidden zoning'
 });
 
 test('traffic-light POIs are excluded while other transport facilities remain visible',()=>{
- const p=prepareEditor(initialProject()),signal={kind:'building',type:'municipal',geometryType:'point',name:'Traffic Light 117642',attributes:{Category:'TrafficLight'}};
+ const p=prepareEditor(initialProject());p.settings.editor.layers['building:municipal'].visible=true;const signal={kind:'building',type:'municipal',geometryType:'point',name:'Traffic Light 117642',attributes:{Category:'TrafficLight'}};
  assert.equal(visibleInEditor(p,signal),false);
  assert.equal(visibleInEditor(p,{...signal,name:'红绿灯',attributes:{}}),false);
  assert.equal(visibleInEditor(p,{...signal,name:'Station',attributes:{Category:'StopPassengerTrain'}}),true);

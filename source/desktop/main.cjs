@@ -7,6 +7,7 @@ const get=id=>{const h=files.get(id);if(!h)throw Error('文件访问已失效，
 const within=(base,p)=>{const rel=path.relative(base,p);if(rel.startsWith('..')||path.isAbsolute(rel))throw Error('文件超出项目目录');return p;};
 async function describe(p,kind='file',writable=false){const s=await fs.stat(p);return {id:token(p,kind,writable),kind,name:path.basename(p),size:s.size};}
 function handle(name,fn){ipcMain.handle(name,async(e,...args)=>{if(e.sender!==win.webContents||e.senderFrame!==win.webContents.mainFrame)throw Error('非法请求');return fn(...args);});}
+handle('md:builtinLod',async()=>describe(path.join(__dirname,'assets/blob-lod2.glb')));
 handle('md:menus',async()=>menuDescription);
 handle('md:menuAction',async id=>{const action=menuActions.get(id);if(action)action();});
 handle('md:title',async title=>{if(typeof title!=='string')return;const text=title.slice(0,240)+' — 天际线Ⅱ地图规划设计器';if(win.getTitle()!==text)win.setTitle(text);});

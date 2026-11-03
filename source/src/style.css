@@ -213,3 +213,34 @@ body.map-fullscreen{overflow:hidden}
 .group-palette summary{cursor:pointer;font-weight:600}
 .palette-row{display:grid;grid-template-columns:minmax(70px,1fr) auto 24px;gap:5px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line);font-size:12px}
 .palette-row:last-child{border-bottom:0}.palette-colors{display:flex;gap:5px}.palette-colors label{text-align:center;min-width:28px}.right-panel .palette-colors input[type=color]{width:30px;height:24px;padding:1px}.palette-colors small{display:block;font-size:10px;color:#7d8b80;margin-top:2px}.palette-row button{padding:1px;border:0;background:transparent;font-size:18px}
+
+.object-origin{padding:8px;margin-bottom:9px;border:1px solid var(--line);border-radius:5px;background:#edf4ee;font-size:12px}.origin-badge{font-style:normal;font-size:10px;color:#6d8a7e;border:1px solid #dbe5df;border-radius:3px;padding:0 3px;white-space:nowrap}.origin-controls small{margin-left:auto}
+/* Compact managers and municipal children retain the existing font size. */
+.editor-layer:has(.municipal-fold){grid-template-columns:20px minmax(0,1fr) 30px}
+.municipal-fold{padding:0;min-width:28px;font-size:20px}
+.municipal-children{padding-left:18px;border-left:1px solid #dce6df;margin:0 5px 4px 22px}
+.municipal-controls label{display:grid;grid-template-columns:18px minmax(0,1fr) 28px;align-items:center;gap:3px;min-height:28px;margin:0}
+.municipal-controls button{text-align:left;padding:3px 4px;border:0;background:transparent;white-space:normal}
+.municipal-controls small{color:#82948e;text-align:right}
+.municipal-controls{padding:3px 0}
+.layer-manager-dialog{width:min(760px,90vw);max-height:85vh}
+.manager-section{margin:8px 0;border-bottom:1px solid #dce6df;padding-bottom:6px}
+.manager-section h3{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:16px}
+.manager-layer{display:flex;align-items:center;gap:12px;min-height:30px;padding-left:22px}
+.manager-layer>button{flex:1;text-align:left;border:0;background:transparent;padding:3px 0}
+.manager-layer small{color:#82948e;margin-left:8px}
+.manager-layer label{display:flex;gap:4px;align-items:center;white-space:nowrap}
+.manager-section .municipal-controls{margin-left:42px}
+.basemap-manager-dialog{width:min(660px,90vw);max-height:85vh}
+.basemap-manager-row{display:grid;grid-template-columns:22px 64px minmax(0,1fr) 66px;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #dce6df}
+.basemap-manager-row img,.basemap-placeholder{width:64px;height:64px;object-fit:contain;background:#e9efed;border-radius:4px}
+.basemap-placeholder{display:grid;place-items:center;color:#82948e}
+.basemap-manager-row small{display:block;color:#82948e;margin-top:3px}
+.basemap-manager-row input[type=text]{width:100%}
+.web-layer-menu{position:relative}
+.web-layer-menu summary{cursor:pointer;padding:6px 12px;list-style:none}
+.web-layer-menu>div{position:absolute;top:100%;right:0;z-index:50;background:#fbfdfb;box-shadow:0 3px 16px #173a3930;padding:5px;min-width:150px;display:grid}
+.web-layer-menu button{text-align:left;white-space:nowrap}
+.desktop-app .web-layer-menu{display:none}
+
+.asset-catalog-controls{display:grid;gap:5px;margin:6px 0}.asset-catalog-controls>div{display:flex;align-items:center;justify-content:space-between;gap:4px}.asset-catalog-controls span{color:#6d847b;font-size:12px}.asset-catalog-controls button{padding:4px 8px}

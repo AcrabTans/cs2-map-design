@@ -8,7 +8,7 @@ export function toBase64(bytes){let text='';for(let i=0;i<bytes.length;i+=32768)
 export function packProject(project,{terrainFiles=new Map(),baseImages={},workspace={},externalLods={}}={}){
  const clean=prepareEditor(project),entries=[],envelope={format:'cs2-map-project',version:1,savedAt:new Date().toISOString(),project:clean,baseImages:{},terrainFiles:{},workspace};
  function asset(path,data){const match=/^data:([^;]+);base64,(.*)$/s.exec(data);if(!match)throw Error('工程图像数据无效');entries.push({name:path,data:fromBase64(match[2])});return {path,mime:match[1]};}
- clean.assetPacks=(clean.assetPacks||[]).map((p,i)=>({...p,...(p.lods?{lods:Object.fromEntries(Object.entries(p.lods).map(([level,data])=>[level,externalLods[data]||asset('Assets/pack-'+i+'-'+level+'.glb',data)]))}:{})}));
+ clean.assetPacks=(clean.assetPacks||[]).map((p,i)=>({...p,...(p.lods?{lods:Object.fromEntries(Object.entries(p.lods).map(([level,data])=>[level,data==='builtin-lod:blob:lod2'?data:externalLods[data]||asset('Assets/pack-'+i+'-'+level+'.glb',data)]))}:{})}));
  clean.basemaps=clean.basemaps.map((b,i)=>({...b,data:asset('Basemaps/custom-'+i+'.'+(b.data.includes('image/jpeg')?'jpg':b.data.includes('image/webp')?'webp':'png'),b.data)}));
  clean.rasters=clean.rasters.map(r=>({...r,data:asset('Terrain/'+r.id+'.png',r.data)}));
  for(const key of ['qgis','satellite'])if(baseImages[key]?.startsWith('data:'))envelope.baseImages[key]=asset('Basemaps/'+key+'.png',baseImages[key]);

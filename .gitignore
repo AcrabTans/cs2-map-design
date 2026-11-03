@@ -22,3 +22,6 @@ __pycache__/
 .scratch/
 .native-test-*/
 node_modules/
+
+.test-*.txt
+!source/src/assets/blob-lod2.glb

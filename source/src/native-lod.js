@@ -11,6 +11,6 @@ export async function registerNativeLod(file,{pack,level}={}){
  const ref='native-lod:'+file.nativeId;nativeLodResources.set(ref,{file,doc,meta,offset,cacheId:ref,async access(index){const a=doc.accessors[index],v=doc.bufferViews[a.bufferView],size=a.componentType===5123?2:4,count=a.count*(a.type==='VEC3'?3:1),start=offset+(v.byteOffset||0)+(a.byteOffset||0),data=await file.slice(start,start+count*size).arrayBuffer(),Ctor=a.componentType===5126?Float32Array:a.componentType===5123?Uint16Array:Uint32Array,values=new Ctor(data);if(values.some(v=>!Number.isFinite(v)))throw Error('LOD含无效坐标');return values;}});return ref;
 }
 export async function desktopLodSaveMap(handle,packs){
- const items=[];for(const pack of packs||[])for(const [level,ref]of Object.entries(pack.lods||{})){const r=nativeLodResources.get(ref);if(r)items.push({ref,fileId:r.file.nativeId,packId:pack.id,level});}
+ const items=[];for(const pack of packs||[])for(const [level,ref]of Object.entries(pack.lods||{})){const r=nativeLodResources.get(ref);if(r&&!ref.startsWith('builtin-lod:'))items.push({ref,fileId:r.file.nativeId,packId:pack.id,level});}
  return items.length?window.mapDesktop.prepareLods(handle.nativeId,items):{};
 }

@@ -12,7 +12,7 @@ test('folder opening loads project-scoped libraries and portable project saves r
  const a=await readProjectFolder([entry('a.cs2map',packProject(p)),entry('assets/sample.cs2assets',library(pack))]);
  assert.equal(a.fileName,'a.cs2map');assert.equal(a.project.assetPacks.length,1);assert.equal(a.assetPaths.get(pack.id),'assets/sample.cs2assets');
  assert.equal((await unpackProject(packProject(a.project))).project.assetPacks[0].id,pack.id);
- const b=await readProjectFolder([entry('b.cs2map',packProject(initialProject()))]);assert.deepEqual(buildingPacksFor(b.project),[]);
+ const b=await readProjectFolder([entry('b.cs2map',packProject(initialProject()))]);assert.equal(b.project.assetPacks.length,0);assert.equal(buildingPacksFor(b.project).some(p=>p.id===pack.id),false);
 });
 test('rejects ambiguous projects, duplicate asset ids and unsafe paths',async()=>{
  const bytes=packProject(initialProject()),pack=BUILTIN_BUILDING_PACKS[1];

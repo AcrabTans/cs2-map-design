@@ -23,7 +23,7 @@ test('out of bounds lot is rejected even when building footprint itself could fi
 test('import and project roundtrip retain custom catalog, placement and independent instances',async()=>{
  const custom=structuredClone(BUILTIN_BUILDING_PACKS[1]);custom.id='custom-demo';custom.name='测试资产包';const imported=readBuildingLibrary({format:'cs2-building-assets',version:1,packs:[custom]});
  const one=makeBuildingAssetFeature(custom,custom.assets[0],[3000,4000],30,'one'),two=makeBuildingAssetFeature(custom,custom.assets[0],[3500,4200],75,'two');one.name='自定义建筑名';
- const p=prepareEditor({...initialProject(),assetPacks:imported,features:[one,two]});const doc=await unpackProject(packProject(p));assert.deepEqual(doc.project.features,p.features);assert.deepEqual(doc.project.assetPacks,imported);assert.equal(buildingPacksFor(doc.project).length,1);
+ const p=prepareEditor({...initialProject(),assetPacks:imported,features:[one,two]});const doc=await unpackProject(packProject(p));assert.deepEqual(doc.project.features,p.features);assert.deepEqual(doc.project.assetPacks,imported);assert.equal(buildingPacksFor(doc.project).find(p=>p.id===doc.project.assetPacks[0].id).assets.length,doc.project.assetPacks[0].assets.length);
  const moved=moveBuildingAsset(doc.project.features[0],[3001,4001]);assert.notDeepEqual(moved.points,doc.project.features[1].points);assert.equal(doc.project.features[1].assetPlacement.rotation,75);
  const records=cartoExportRecords(p).records;assert.equal(records.Building_Boundary.length,2);assert.equal(records.POI_Location.length,2);assert.equal(records.Building_Boundary[0].attributes.Asset,custom.assets[0].code);
 });
@@ -48,7 +48,7 @@ test('Synthetic buildings retain multipart footprints, exact source codes and ca
  const pack=BUILTIN_BUILDING_PACKS[2];assert.equal(pack.assets.length,168);assert.equal(pack.assets.filter(a=>a.type==='residential').length,156);
  assert.equal(pack.assets.find(a=>a.code==='SyntheticFacility0').maxEmployees,12);assert.equal(pack.assets.find(a=>a.code==='SyntheticFacility1').maxEmployees,0);assert(pack.assets.every(a=>a.maxResidents===null));
  const features=pack.assets.map((a,i)=>makeBuildingAssetFeature(pack,a,[2000+(i%12)*800,2000+Math.floor(i/12)*700],15*(i%24),String(i)));
- const p=prepareEditor({...initialProject(),assetPacks:[pack],features}),doc=await unpackProject(packProject(p));assert.deepEqual(doc.project.features,p.features);assert.deepEqual(doc.project.assetPacks,p.assetPacks);assert.equal(buildingPacksFor(doc.project).length,1);
+ const p=prepareEditor({...initialProject(),assetPacks:[pack],features}),doc=await unpackProject(packProject(p));assert.deepEqual(doc.project.features,p.features);assert.deepEqual(doc.project.assetPacks,p.assetPacks);assert.equal(buildingPacksFor(doc.project).find(p=>p.id===doc.project.assetPacks[0].id).assets.length,doc.project.assetPacks[0].assets.length);
  assert(features.some(f=>f.additionalParts?.length>10));assert.equal(cartoExportRecords(p).records.Building_Boundary.length,168);
 });
 
