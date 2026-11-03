@@ -58,9 +58,10 @@ if(seed){const title=String(options['--title']||'优化初稿 01').replace(/[<>&
 const output=path.resolve(root,options['--output']||'../index.html');
 await mkdir(path.dirname(output),{recursive:true});
 await writeFile(output,html);
-const bundledLod=path.join(root,'src/assets/blob-lod2.glb'),assetOutput=path.join(path.dirname(output),'assets');
-await mkdir(assetOutput,{recursive:true});
-if(path.dirname(output)===path.resolve(root,'../resources/app'))await copyFile(bundledLod,path.join(assetOutput,'blob-lod2.glb'));
-else await writeFile(path.join(assetOutput,'blob-lod2.js'),'globalThis.MAP_BUILTIN_LOD2="data:model/gltf-binary;base64,'+(await readFile(bundledLod)).toString('base64')+'";');
+const assetOutput=path.join(path.dirname(output),'assets');await mkdir(assetOutput,{recursive:true});
+for(const file of await readdir(path.join(root,'src/assets'))){if(!file.endsWith('-lod2.glb'))continue;const bundled=path.join(root,'src/assets',file),id=file.slice(0,-9);
+ if(path.dirname(output)===path.resolve(root,'../resources/app'))await copyFile(bundled,path.join(assetOutput,file));
+ else await writeFile(path.join(assetOutput,id+'-lod2.js'),'globalThis.MAP_BUILTIN_LODS??={};globalThis.MAP_BUILTIN_LODS['+JSON.stringify(id)+']="data:model/gltf-binary;base64,'+(await readFile(bundled)).toString('base64')+'";');
+}
 if(path.dirname(output)===path.resolve(root,'../resources/app'))for(const file of await readdir(path.join(root,'desktop')))if(file.endsWith('.cjs'))await copyFile(path.join(root,'desktop',file),path.join(path.dirname(output),file));
 console.log('Offline HTML generated: '+output);

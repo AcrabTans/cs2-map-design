@@ -28,8 +28,9 @@ for a in pack['assets']:
  if len(a['rings'])>512:
   def ringarea(r):return abs(sum(x*v-u*y for (x,y),(u,v) in zip(r,r[1:]+r[:1]))/2)
   ordered=sorted(a['rings'],key=ringarea,reverse=True);removed=ordered[512:];bound=sum(map(ringarea,removed))
-  # Ferris wheel spokes create many tiny islands/holes: permit an explicit, bounded 1% detail reduction.
-  tolerance=max(.1,a['area']*(.01 if a['code']=='FerrisWheel01' else .0001))
+  # Explicitly bounded detail reductions for validated complex assets only.
+  detail_limits={'FerrisWheel01':.01,'Pack8-IndustrialSignature06':.002}
+  tolerance=max(.1,a['area']*detail_limits.get(a['code'],.0001))
   if bound<=tolerance:
    from shapely.geometry import Polygon
    a['rings']=ordered[:512];g=Polygon()

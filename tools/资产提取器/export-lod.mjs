@@ -3,15 +3,17 @@ import {openCok,decodeGeometry} from './cok-reader.mjs';
 const [source,work,output,slug,label,...levels]=process.argv.slice(2);
 const z=openCok(source),defs=JSON.parse(fs.readFileSync(work+'/definitions.json','utf8')),names=JSON.parse(fs.readFileSync(work+'/names.json','utf8'));
 const stem=name=>name.replace(/_[a-f0-9]{30,32}\.Geometry$/,'');
-const geometries=new Map();for(const e of z.entries.values())if(e.name.endsWith('.Geometry')){const k=stem(e.name);if(!geometries.has(k))geometries.set(k,[]);geometries.get(k).push(e.name);}
+const archives=new Map([[source,z]]),indexes=new Map();
+for(const a of defs.assets)for(const m of a.meshes)if(m.geometrySource&&!archives.has(m.geometrySource))archives.set(m.geometrySource,openCok(m.geometrySource));
+for(const [file,c] of archives){const index=new Map();for(const e of c.entries.values())if(e.name.endsWith('.Geometry')){const k=stem(e.name);if(!index.has(k))index.set(k,[]);index.get(k).push({file,name:e.name});}indexes.set(file,index);}
 for(const level of levels){
  if(!['lod1','lod2'].includes(level))throw Error('Invalid LOD');
  const doc={asset:{version:'2.0',generator:'CS2 local asset extractor'},scene:0,scenes:[],nodes:[],meshes:[],accessors:[],bufferViews:[],buffers:[],materials:[{pbrMetallicRoughness:{baseColorFactor:[.65,.72,.74,1],metallicFactor:0,roughnessFactor:1},doubleSided:true}],extras:{format:'cs2-building-lod',version:1,packId:slug,packName:label,lod:level,units:'metres',coordinates:'right-handed Y-up; Z=-gameZ',assets:[]}};
  const buffers=[],shared=new Map();let length=0,available=0;
  function accessor(array,type,componentType,bounds){const data=Buffer.from(array.buffer,array.byteOffset,array.byteLength),pad=(4-length%4)%4;if(pad){buffers.push(Buffer.alloc(pad));length+=pad;}const view=doc.bufferViews.push({buffer:0,byteOffset:length,byteLength:data.length})-1;buffers.push(data);length+=data.length;return doc.accessors.push({bufferView:view,componentType,count:array.length/(type==='VEC3'?3:1),type,...bounds})-1;}
- async function mesh(name){
+ async function mesh(item){const name=item.file+'|'+item.name;
   if(shared.has(name))return shared.get(name);
-  const g=await decodeGeometry(z.read(name)),primitives=[];
+  const g=await decodeGeometry(archives.get(item.file).read(item.name)),primitives=[];
   for(const part of g.parts){
    const positions=new Float32Array(part.vertices.length*3),indices=new Uint32Array(part.indices),normals=new Float32Array(positions.length),min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
    part.vertices.forEach((p,i)=>{for(let k=0;k<3;k++){const v=k===2?-p[k]:p[k];positions[i*3+k]=v;min[k]=Math.min(min[k],positions[i*3+k]);max[k]=Math.max(max[k],positions[i*3+k]);}});
@@ -22,7 +24,7 @@ for(const level of levels){
   const index=doc.meshes.push({name,primitives})-1;shared.set(name,index);return index;
  }
  for(const a of defs.assets){
-  const selected=a.meshes.map(m=>{const base=stem(m.geometry).replace(/_LOD0$/,''),matches=geometries.get(base+'_'+level.toUpperCase())||[];return matches.length===1?matches[0]:null;});
+  const selected=a.meshes.map(m=>{const base=stem(m.geometry).replace(/_LOD0$/,''),matches=indexes.get(m.geometrySource||source).get(base+'_'+level.toUpperCase())||[];return matches.length===1?matches[0]:null;});
   const metadata={id:a.name,code:a.name,name:names['Assets.NAME['+a.name+']']||a.name,type:a.type,lot:a.lot,maxResidents:a.maxResidents,maxEmployees:a.maxEmployees,status:selected.every(Boolean)?'available':'missing',missingMainMeshes:a.meshes.filter((_,i)=>!selected[i]).map(m=>m.geometry)};
   const children=[];
   if(metadata.status==='available'){
@@ -37,4 +39,4 @@ for(const level of levels){
  const header=Buffer.alloc(20);header.writeUInt32LE(0x46546c67);header.writeUInt32LE(2,4);header.writeUInt32LE(total,8);header.writeUInt32LE(json.length,12);header.writeUInt32LE(0x4e4f534a,16);const parts=[header,json];if(length){const h=Buffer.alloc(8);h.writeUInt32LE(bin.length);h.writeUInt32LE(0x004e4942,4);parts.push(h,bin);}
  const file=output+'/'+slug+'-'+level+'.glb';fs.writeFileSync(file,Buffer.concat(parts));fs.writeFileSync(work+'/'+level+'-report.json',JSON.stringify({available,missing:defs.assets.length-available,assets:doc.extras.assets.map(a=>({id:a.id,status:a.status,missing:a.missingMainMeshes}))}));console.log(JSON.stringify({lod:level,available,missing:defs.assets.length-available,file}));
 }
-z.close();
+for(const c of archives.values())c.close();

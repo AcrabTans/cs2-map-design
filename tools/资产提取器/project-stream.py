@@ -40,7 +40,7 @@ for line in sys.stdin:
   if p.geom_type!='Polygon':raise Exception('Unexpected geometry '+p.geom_type)
   for r in [p.exterior,*p.interiors]:rings.append([[round(float(x),4),round(float(-z),4)] for x,z in list(r.coords)[:-1]])
  v=np.concatenate(verts);height=float(v[:,1].max()-v[:,1].min())
- asset={k:a[k] for k in ['id','name','type','lot','maxResidents','maxEmployees']};asset['code']=a['name'];asset['height']=round(height,4);asset['area']=round(g.area,2);asset['rings']=rings
+ asset={k:a[k] for k in ['id','name','type','lot','maxResidents','maxEmployees']};asset.update({k:a[k] for k in ['isExtension','parentAssetCode','parentAssetCodes'] if k in a});asset['code']=a['name'];asset['height']=round(height,4);asset['area']=round(g.area,2);asset['rings']=rings
  assets.append(asset);checks.append({'code':asset['code'],'rings':len(rings),'vertices':sum(map(len,rings)),'areaError':g.area-rawarea,'precisionRecovery':recovery,'modelWarnings':a.get('modelWarnings',[])})
  row={'key':key,'asset':asset,'check':checks[-1]}
  with cachepath.open('a',encoding='utf-8') as f:f.write(json.dumps(row,ensure_ascii=False)+'\n')

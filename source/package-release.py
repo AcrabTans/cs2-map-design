@@ -108,14 +108,14 @@ Python 包名、版本、元数据位置见 docs/THIRD_PARTY_COMPONENTS.json。�
 ''', encoding='utf-8')
     info = {'product': '天际线Ⅱ地图规划设计器', 'version': VERSION, 'platform': 'win32-x64',
             'releaseDate': '2026-11-03', 'builtAtUtc': datetime.now(timezone.utc).isoformat(),
-            'electron': '45.2.1', 'personalDataIncluded': False, 'builtinAssets': {'total': 1013, 'extensions': 43, 'realLod2': 966, 'lod1': False}, 'sourceIncluded': False,
+            'electron': '45.2.1', 'personalDataIncluded': False, 'builtinAssets': {'total': 6280, 'dlcPacks': 11, 'officialPacks': 9, 'realLod2': 5623, 'lod1': False}, 'sourceIncluded': False,
             'checks': {'mapTestsPassed': passed, 'extractorTestsPassed': 8,
                        'extractorDependencies': 'passed', 'extractorWindowSelfTest': 'passed'},
             'validationLimits': ['No clean-machine end-to-end GUI test of this archive', 'No 10000-building stress test']}
     (TARGET / 'release.json').write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding='utf-8')
     forbidden = {'.cs2map', '.cs2assets', '.cok', '.glb', '.tif', '.tiff', '.log', '.pyc'}
     for p in TARGET.rglob('*'):
-        if p.is_file() and p.suffix.lower() in forbidden and p.relative_to(TARGET).as_posix() != 'resources/app/assets/blob-lod2.glb':
+        if p.is_file() and p.suffix.lower() in forbidden and p.relative_to(TARGET).as_posix() not in ['resources/app/assets/blob-lod2.glb', 'resources/app/assets/bridgesandports-lod2.glb', 'resources/app/assets/citystations-lod2.glb', 'resources/app/assets/downtownmarketset-lod2.glb', 'resources/app/assets/dragongate-lod2.glb', 'resources/app/assets/leisurevenues-lod2.glb', 'resources/app/assets/mediterraneanheritage-lod2.glb', 'resources/app/assets/modernarchitecture-lod2.glb', 'resources/app/assets/officeevolution-lod2.glb', 'resources/app/assets/skyscrapers-lod2.glb', 'resources/app/assets/supplychains-lod2.glb', 'resources/app/assets/urbanpromenades-lod2.glb', 'resources/app/assets/china-pack-lod2.glb', 'resources/app/assets/eastern-europe-pack-lod2.glb', 'resources/app/assets/french-pack-lod2.glb', 'resources/app/assets/german-pack-lod2.glb', 'resources/app/assets/japan-pack-lod2.glb', 'resources/app/assets/netherlands-pack-lod2.glb', 'resources/app/assets/uk-pack-lod2.glb', 'resources/app/assets/usa-northeast-pack-lod2.glb', 'resources/app/assets/usa-southwest-pack-lod2.glb']:
             raise RuntimeError('Unexpected project/cache/asset in release: ' + str(p.relative_to(TARGET)))
         if p.is_symlink():
             raise RuntimeError('Unexpected link in release')

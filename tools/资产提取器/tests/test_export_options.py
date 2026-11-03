@@ -25,4 +25,14 @@ class ExportOptionsTest(unittest.TestCase):
     self.assertEqual(len(list(output.iterdir())),len(selected))
     self.assertEqual(len(result['files']),len(selected))
 
+class DlcPackagesTest(unittest.TestCase):
+ def test_prefabs_and_blob_resolve_to_same_dlc_and_different_dlcs_do_not_collide(self):
+  resolve=runpy.run_path(str(Path(__file__).resolve().parents[1]/'提取.py'))['resolve_package']
+  with tempfile.TemporaryDirectory(dir=Path.cwd()/'.scratch') as directory:
+   root=Path(directory)/'Content'
+   for name in ['CityStations','ModernArchitecture','Game']:
+    folder=root/name;folder.mkdir(parents=True);(folder/'Blob.cok').write_bytes(b'x');(folder/'Prefabs.cok').write_bytes(b'y')
+    a=resolve(folder/'Blob.cok');b=resolve(folder/'Prefabs.cok');self.assertEqual(a,b)
+    self.assertEqual(a[1],'Blob' if name=='Game' else name)
+
 if __name__=='__main__':unittest.main()

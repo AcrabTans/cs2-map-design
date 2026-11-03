@@ -17,15 +17,22 @@ def run(cmd,log):
     if count%10==0:print('已生成 '+str(count)+' 个建筑投影',flush=True)
   p.wait()
  if p.returncode:raise RuntimeError('步骤失败，详见 '+str(log))
+def resolve_package(source):
+ source=Path(source).resolve()
+ if source.name=='Prefabs.cok' and (source.parent/'Blob.cok').is_file():source=source.parent/'Blob.cok'
+ name=source.parent.name if source.name=='Blob.cok' and source.parent.parent.name=='Content' and source.parent.name!='Game' else source.stem.removeprefix('Blob_')
+ return source,name
+
 def extract(source,output,label=None,formats=None):
  formats=list(dict.fromkeys(formats or ['projection']))
  if any(f not in ['projection','lod1','lod2'] for f in formats):raise ValueError('导出选项无效')
- source=Path(source).resolve();output=Path(output).resolve();output.mkdir(parents=True,exist_ok=True)
+ source,package_name=resolve_package(source)
+ output=Path(output).resolve();output.mkdir(parents=True,exist_ok=True)
  if not source.is_file() or source.suffix.lower()!='.cok':raise ValueError('请选择 .cok 文件')
  # Archive entries are now read on demand; source size is not a memory allocation.
  game_data=source.parents[2] if len(source.parents)>2 else None
  if output==source.parent or (game_data and (game_data/'resources.assets').is_file() and (source.parents[3]==output or source.parents[3] in output.parents)):raise ValueError('输出目录必须在游戏目录之外')
- slug=re.sub('[^a-z0-9-]+','-',source.stem.removeprefix('Blob_').lower()).strip('-') or 'assets'
+ slug=re.sub('[^a-z0-9-]+','-',package_name.lower()).strip('-') or 'assets'
  work=ROOT/'工作缓存'/slug;work.mkdir(parents=True,exist_ok=True);log=work/'运行日志.txt';log.write_text('',encoding='utf-8')
  with source.open('rb') as f:before=hashlib.file_digest(f,'sha256').hexdigest()
  def step(name):print(name,flush=True)
@@ -49,12 +56,12 @@ def extract(source,output,label=None,formats=None):
    step('2/4 提取 '+str(len(defs['assets']))+' 栋建筑的主模型投影')
    run([os.environ.get('CS2_NODE','node'),str(ROOT/'project-all.mjs'),str(source),str(work)],log)
    step('3/4 生成投影资产库及总览图')
-   run([sys.executable,str(ROOT/'finalize.py'),str(work),str(output),str(source),slug,label or source.stem.removeprefix('Blob_')],log)
+   run([sys.executable,str(ROOT/'finalize.py'),str(work),str(output),str(source),slug,label or package_name],log)
    files.append(str(output/(slug+'.cs2assets')))
   levels=[f for f in ['lod2','lod1'] if f in formats]
   if levels:
    step('3/4 导出三维模型：'+', '.join(levels))
-   run([os.environ.get('CS2_NODE','node'),str(ROOT/'export-lod.mjs'),str(source),str(work),str(output),slug,label or source.stem.removeprefix('Blob_'),*levels],log)
+   run([os.environ.get('CS2_NODE','node'),str(ROOT/'export-lod.mjs'),str(source),str(work),str(output),slug,label or package_name,*levels],log)
    files.extend(str(output/(slug+'-'+level+'.glb')) for level in levels)
   step('4/4 校验源文件未改变')
   result={'ok':True,'source':str(source),'assets':len(defs['assets']),'library':files[0],'files':files,'formats':formats,'log':str(log)}

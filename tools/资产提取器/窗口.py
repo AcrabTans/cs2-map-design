@@ -8,7 +8,7 @@ source=tk.StringVar();dest=tk.StringVar(value=str(ROOT/'output'));label=tk.Strin
 frame=ttk.Frame(root,padding=16);frame.pack(fill='both',expand=True);frame.columnconfigure(1,weight=1)
 def choose():
  p=filedialog.askopenfilename(title='选择资产资源包',filetypes=[('COK 资源包','*.cok')])
- if p:source.set(p);label.set(Path(p).stem.removeprefix('Blob_'))
+ if p:source.set(p);label.set(Path(p).parent.name if Path(p).name in ['Blob.cok','Prefabs.cok'] and Path(p).parent.parent.name=='Content' and Path(p).parent.name!='Game' else Path(p).stem.removeprefix('Blob_'))
 for row,title,var in [(0,'资源包',source),(1,'资产包名称',label),(2,'输出目录',dest)]:
  ttk.Label(frame,text=title).grid(row=row,column=0,sticky='w',pady=6);ttk.Entry(frame,textvariable=var).grid(row=row,column=1,sticky='ew',padx=8)
 ttk.Button(frame,text='选择文件',command=choose).grid(row=0,column=2)

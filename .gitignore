@@ -25,3 +25,5 @@ node_modules/
 
 .test-*.txt
 !source/src/assets/blob-lod2.glb
+
+!source/src/assets/*-lod2.glb
