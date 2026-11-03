@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib, json, os, re, shutil, subprocess, sys, zipfile
 from datetime import datetime, timezone
 
-VERSION = '0.2.0'
+VERSION = '0.3.0'
 SOURCE = Path(__file__).resolve().parent
 APP = SOURCE.parent
 OUT = APP.parent / 'releases'
@@ -51,7 +51,7 @@ def main():
     run([runtime / 'python.exe', tool / '窗口.py', '--self-test'], python_env)
     run([runtime / 'python.exe', '-m', 'unittest', 'discover', '-s', tool / 'tests', '-p', 'test_*.py'], python_env)
     run([node, '--test', tool / 'tests/cok-reader.test.mjs', tool / 'tests/binary-prefab.test.mjs'], node_env)
-    print('Extractor dependency, GUI self-test and 8 checks passed', flush=True)
+    print('Extractor dependency, GUI self-test and 11 checks passed', flush=True)
     OUT.mkdir(exist_ok=True)
     TARGET.mkdir()
     runtime_names = ['MapDesign.exe', 'LICENSES.chromium.html', 'version', 'icudtl.dat',
@@ -64,6 +64,9 @@ def main():
     shutil.copy2(APP / 'APPLICATION_LICENSE.txt', TARGET / 'APPLICATION_LICENSE.txt')
     copy_tree(APP / 'locales', TARGET / 'locales')
     copy_tree(APP / 'resources', TARGET / 'resources')
+    app_metadata=TARGET / 'resources/app/package.json'
+    metadata=json.loads(app_metadata.read_text(encoding='utf-8'));metadata['version']=VERSION
+    app_metadata.write_text(json.dumps(metadata,ensure_ascii=False,indent=2),encoding='utf-8')
     bundled_tool = TARGET / 'tools' / '资产提取器'
     bundled_tool.mkdir(parents=True)
     for name in ['依赖', 'runtime']:
@@ -109,7 +112,7 @@ Python 包名、版本、元数据位置见 docs/THIRD_PARTY_COMPONENTS.json。�
     info = {'product': '天际线Ⅱ地图规划设计器', 'version': VERSION, 'platform': 'win32-x64',
             'releaseDate': '2026-11-03', 'builtAtUtc': datetime.now(timezone.utc).isoformat(),
             'electron': '45.2.1', 'personalDataIncluded': False, 'builtinAssets': {'total': 6280, 'dlcPacks': 11, 'officialPacks': 9, 'realLod2': 5623, 'lod1': False}, 'sourceIncluded': False,
-            'checks': {'mapTestsPassed': passed, 'extractorTestsPassed': 8,
+            'checks': {'mapTestsPassed': passed, 'extractorTestsPassed': 11,
                        'extractorDependencies': 'passed', 'extractorWindowSelfTest': 'passed'},
             'validationLimits': ['No clean-machine end-to-end GUI test of this archive', 'No 10000-building stress test']}
     (TARGET / 'release.json').write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding='utf-8')

@@ -13,6 +13,6 @@ exports.desktopMenu=(win,openExtractor)=>{
   {label:'图层(&L)',submenu:[action('图层管理…','manageLayers'),action('底图管理…','manageBasemaps'),action('区块透明度…','zoneOpacitySettings'),{type:'separator'},action('导入底图…','baseImportBtn'),action('导入 Carto 图层…','cartoFolderBtn'),{type:'separator'},action('叠加导入手绘规划…','importPlanning'),action('单独导出手绘规划…','exportPlanning')]},
   {label:'资产(&A)',submenu:[action('内置本体建筑…','openBuiltinAssets'),{type:'separator'},{label:'资产提取器…',click:openExtractor},{type:'separator'},action('导入建筑资产包…','importBuildingLibrary'),action('资产包管理…','manageAssetPacks')]},
   {label:'工具(&T)',submenu:[action('选择','selectTool'),action('平移','panTool'),action('测距','measureTool'),{type:'separator'},action('工程设置…','projectBtn')]},
-  {label:'帮助(&H)',submenu:[action('操作说明','helpBtn','F1'),{label:'关于',click:()=>require('electron').dialog.showMessageBox(win,{type:'info',title:'关于',message:'天际线Ⅱ地图规划设计器',detail:'绿色免安装版 0.1\n运行时 Electron '+process.versions.electron+'\n程序与项目可随整个文件夹迁移。'})}]}
+  {label:'帮助(&H)',submenu:[action('操作说明','helpBtn','F1'),{label:'关于',click:()=>require('electron').dialog.showMessageBox(win,{type:'info',title:'关于',message:'天际线Ⅱ地图规划设计器',detail:'绿色免安装版 0.3.0\n运行时 Electron '+process.versions.electron+'\n程序与项目可随整个文件夹迁移。'})}]}
  ];
 };
