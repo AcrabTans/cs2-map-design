@@ -1,16 +1,14 @@
+import './tauri-bridge.js';
+import {NAME_STYLES,NAME_TYPES,nameCandidates,drawNames} from './name-generator.js';
 import {installDesktopPickers,desktopFile,lightHistorySnapshot,restoreHistorySnapshot} from './desktop-runtime.js';
-import {desktopLodSaveMap,nativeLodResources} from './native-lod.js';
 installDesktopPickers();
-import {ensureBuiltinLods} from './builtin-lod.js';
-import {MapView3D} from './view-3d.js';
-import {readAssetSelection} from './asset-3d.js';
 import {readProjectFolder,directoryProjectEntries,folderFileHandle,saveFolderLibraries} from './project-folder.js';
-import {removeProjectAssetPacks,buildingPacksFor,includePlacedAsset,catalogPage,readBuildingLibrary,buildingAngle,transformBuildingRing,buildingAssetLot,buildingAssetFits,makeBuildingAssetFeature,rotateBuildingAsset,moveBuildingAsset} from './building-assets.js';
+import {removeProjectAssetPacks,buildingPacksFor,includePlacedAsset,catalogPage,readAssetSelection,buildingAngle,transformBuildingRing,buildingAssetLot,buildingAssetFits,makeBuildingAssetFeature,rotateBuildingAsset,moveBuildingAsset} from './building-assets.js';
 import {exportCarto,cartoExportRecords,CARTO_EXPORT_LAYERS} from './carto-export.js';
-import {packProject,unpackProject,ProjectFileWriter,chooseProjectSaveTarget,fromBase64} from './project-file.js';
+import {packProject,packTauriProject,unpackProject,ProjectFileWriter,chooseProjectSaveTarget,fromBase64} from './project-file.js';
 import {createEditScheduler,createSnapIndex,createCrossingCache} from './edit-performance.js';
 import {networkDisplay,mapScrollAxis,createViewportScheduler} from './network-display.js';
-import {roadStackLevel,buildNetworkCrossings,junctionSectors,crossingRelation} from './network-crossings.js';
+import {roadStackLevel,buildNetworkCrossings,junctionSectors,roadFlatEnds,crossingRelation} from './network-crossings.js';
 import {SIZE,ROADS,ZONES,MUNICIPAL_TYPES,municipalClass,municipalVisible,defaultLayerColor,featureDisplayColor,roadStyleColors,zoneInfo,roadInfo,distance,length,area,nearestSegment,initialProject,validateProject,isNewFeature,isProtectedZone,applyFeaturePatch,isPolygonFeature,interiorPoint,districtAt,visibleInPlanView,GROUPS,BLOCK_CLASSES,BUILDINGS,blockClass,classInfo,featureSource,layerKey,editorSettings,visibleInEditor,labelsVisibleInEditor,originForFeature,lockedInEditor,prepareEditor,correctionCopy,validateInterchangeBounds,containedGeometry,buildingCategory,groupForLayer,layerKeysForGroup,CARTO_FIELDS,fieldsForLayer} from './model.js';
 import {terrainType,readTerrainTiff,terrainPixels,checkTerrainExtent,correctTerrainSource,terrainFingerprint} from './terrain.js';
 import {inspectCartoFolder,mergeCartoImport} from './carto.js';
@@ -18,7 +16,7 @@ import {projectMapFrame,checkPlanningFrame,copyAsPlanning,createPlanningProject,
 import {projectBackup} from './file-store.js';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg',KEY='island-planner-v1';
 let project=initialProject(),history=[],future=[],selected=null,selectedNode=null,tool='select',roadType='arterial',zoneType='mid-res',draft=[],hover=null,snapPoint=null,space=false,drag=null,suppressClick=false,toastTimer,saveTimer;
-const expandedGroups=new Set(),closedAssetGroups=new Set();
+const expandedGroups=new Set(),closedAssetGroups=new Set(['dlc','official','third-party']);
 let municipalExpanded=false,activeMunicipalClass=null,snapIndex=null;
 const renderCrossingCache=createCrossingCache(buildNetworkCrossings);
 function invalidateEditGeometry(){snapIndex=null;renderCrossingCache.invalidate();}
@@ -54,8 +52,8 @@ async function saveProject(asNew=false){
  if(projectSaving)return false;projectSaving=true;updateSaveStatus();const revision=editRevision;
  try{
   const {writer,name}=await chooseProjectSaveTarget(projectWriter,{asNew,currentName:currentFileName,suggestedName:asNew?safeProjectName():currentFileName,pick:typeof window.showSaveFilePicker==='function'?()=>window.showSaveFilePicker({suggestedName:asNew?safeProjectName():currentFileName,types:[{description:'天际线Ⅱ地图工程',accept:{'application/octet-stream':['.cs2map']}}]}):null});
-  await ensureTerrainFiles();const snapshot=structuredClone(project),bytes=packProject(snapshot,{terrainFiles:activeTerrainFiles(),baseImages:{...(typeof BASEMAPS==='undefined'?{}:BASEMAPS),...openedBaseImages},workspace:workspaceSnapshot(),externalLods:window.mapDesktop?await desktopLodSaveMap(writer.handle,snapshot.assetPacks):{}});
-  if(projectFolderContext&&!asNew)await saveFolderLibraries(projectFolderContext,window.mapDesktop?(snapshot.assetPacks||[]).map(({lods,...p})=>p):snapshot.assetPacks||[]);
+  await ensureTerrainFiles();const snapshot=structuredClone(project),pack=window.mapDesktop?.tauri?packTauriProject:packProject,bytes=await pack(snapshot,{terrainFiles:activeTerrainFiles(),baseImages:{...(typeof BASEMAPS==='undefined'?{}:BASEMAPS),...openedBaseImages},workspace:workspaceSnapshot()});
+  if(projectFolderContext&&!asNew)await saveFolderLibraries(projectFolderContext,snapshot.assetPacks||[],{compact:!!window.mapDesktop?.tauri});
   await writer.save(bytes);
   if(asNew)projectFolderContext=null;
   projectWriter=writer;currentFileName=name;if(editRevision===revision)projectDirty=false;await cacheProjectAssets();await saveBrowser();toast('工程已保存：'+name);return true;
@@ -70,7 +68,7 @@ function installProject(doc){
  buildLayers();syncUI();setTool('select');render();renderProperties();updateUndo();updateSaveStatus();if($('projectDialog').open)$('projectDialog').close();if($('unsavedDialog').open)$('unsavedDialog').close();pendingProject=null;cacheProjectAssets();saveBrowser();toast(doc.isNew?'已新建工程':'已打开：'+currentFileName);
 }
 function requestProject(doc){if(projectDirty){pendingProject=doc;$('unsavedDialog').showModal();}else installProject(doc);}
-async function acceptProjectFile(file,handle=null){if(file.size>512*1024*1024)throw Error('工程文件超过 512 MB');const bytes=await file.arrayBuffer(),doc=await unpackProject(bytes,{resolveExternal:file.relativeFile});doc.fileName=/\.cs2map$/i.test(file.name)?file.name:file.name.replace(/\.json$/i,'')+'.cs2map';if(handle&&/\.cs2map$/i.test(file.name)){doc.writer=new ProjectFileWriter();doc.writer.attach(handle,bytes);}requestProject(doc);}
+async function acceptProjectFile(file,handle=null){if(file.size>512*1024*1024)throw Error('工程文件超过 512 MB');const bytes=await file.arrayBuffer(),doc=await unpackProject(bytes);doc.fileName=/\.cs2map$/i.test(file.name)?file.name:file.name.replace(/\.json$/i,'')+'.cs2map';if(handle&&/\.cs2map$/i.test(file.name)){doc.writer=new ProjectFileWriter();doc.writer.attach(handle,bytes);}requestProject(doc);}
 async function openProjectFile(){
  try{if('showOpenFilePicker' in window){const [handle]=await window.showOpenFilePicker({multiple:false,types:[{description:'天际线Ⅱ地图工程',accept:{'application/octet-stream':['.cs2map'],'application/json':['.json']}}]});await acceptProjectFile(await handle.getFile(),handle);}else $('importFile').click();}catch(error){if(error.name!=='AbortError')toast('打开未完成：'+error.message);}
 }
@@ -108,24 +106,36 @@ function updateUndo(){$('undoBtn').disabled=!history.length;$('redoBtn').disable
 function node(tag,attrs={},parent){const n=document.createElementNS(NS,tag);for(const [k,v]of Object.entries(attrs))n.setAttribute(k,String(v));if(parent)parent.appendChild(n);return n}
 function pathData(points,closed=false){return points.map((p,i)=>`${i?'L':'M'}${p[0]},${p[1]}`).join(' ')+(closed?' Z':'')}
 function featurePath(f,closed=true){return [f.points,...(f.additionalParts||[])].map(ps=>pathData(ps,closed)).join(' ');}
-function renderNetworkFeature(f,isSelected,hostOverride=null,edgeHost=null){
+function renderNetworkFeature(f,isSelected,hostOverride=null,edgeHost=null,flatEnds=null){
  const featureNode=(tag,attrs,parent)=>node(tag,{...attrs,'data-render-id':f.id},parent);
  const e=project.settings.editor,s=networkDisplay(f,e,view.scale),{route,color,width,opacity}=s;
  const host=hostOverride||$(route?'routeShapes':'roadShapes'),poly=f.geometryType==='polygon',d=featurePath(f,poly);
- if(!route&&project.settings.corridors&&!['bus','metro','waterway'].includes(f.type)&&!poly)featureNode('path',{d,fill:'none',stroke:color,'stroke-opacity':.08,'stroke-width':f.corridor,'stroke-linecap':'round','stroke-linejoin':'round','pointer-events':'none'},$('corridorShapes'));
  if(!route&&f.outlineParts&&!f.outlineDetached&&e.networkOutlines&&view.scale/fitScale>1.5)featureNode('path',{d:f.outlineParts.map(ps=>pathData(ps,true)).join(' '),fill:color,'fill-opacity':.08,stroke:color,'stroke-opacity':.3,'stroke-width':.5/view.scale,'fill-rule':'evenodd','data-id':f.id},host);
  if(poly){featureNode('path',{d,fill:color,'fill-rule':'evenodd','fill-opacity':opacity,stroke:'none','data-id':f.id},host);return;}
  const attrs={d,fill:'none',stroke:color,'stroke-opacity':opacity,'stroke-width':width,'stroke-linecap':s.type==='waterway'?'butt':'round','stroke-linejoin':'round','pointer-events':'none','data-network-type':f.type,'data-structure':s.structure,'data-render-width':s.actualWidth};
- if(isSelected)featureNode('path',{d,fill:'none',stroke:'#fff','stroke-opacity':.8,'stroke-width':width+4/view.scale,'stroke-linecap':'round','pointer-events':'none'},host);
+ const paint=(paintAttrs,parent)=>{
+  if(!flatEnds?.size){featureNode('path',paintAttrs,parent);return;}
+  [f.points,...(f.additionalParts||[])].forEach((part,index)=>{
+   const start=flatEnds.has(`${index}:start`),end=flatEnds.has(`${index}:end`);
+   featureNode('path',{...paintAttrs,d:pathData(part,false),'stroke-linecap':start||end?'butt':'round'},parent);
+   if(!start&&!end)return;
+   for(const point of [...(start?[]:part.slice(0,1)),...(end?[]:part.slice(-1))]){
+    featureNode('circle',{cx:point[0],cy:point[1],r:paintAttrs['stroke-width']/2,fill:paintAttrs.stroke,'fill-opacity':paintAttrs['stroke-opacity'],'pointer-events':'none'},parent);
+   }
+  });
+ };
+ if(!route&&project.settings.corridors&&!['bus','metro','waterway'].includes(f.type))paint({...attrs,'stroke-opacity':.08,'stroke-width':f.corridor},$('corridorShapes'));
+ if(isSelected)paint({...attrs,stroke:'#fff','stroke-opacity':.8,'stroke-width':width+4/view.scale},host);
  const lineWidth=Math.max(.1,width-s.edgeWidth*2);
- if(s.edgeWidth)featureNode('path',{...attrs,stroke:s.edgeColor,'data-network-edge':'true'},edgeHost||host);
- featureNode('path',{...attrs,'stroke-width':lineWidth},host);
+ if(s.edgeWidth)paint({...attrs,stroke:s.edgeColor,'data-network-edge':'true'},edgeHost||host);
+ paint({...attrs,'stroke-width':lineWidth},host);
  if(!route&&f.type==='rail')featureNode('path',{...attrs,stroke:s.railWhite,'stroke-width':lineWidth*.62,'stroke-linecap':'butt','stroke-dasharray':s.railSegment+' '+s.railSegment,'data-rail-inlay':'true'},host);
  featureNode('path',{d,fill:'none',stroke:'transparent','stroke-width':Math.max(width,13/view.scale),'data-id':f.id,'stroke-linecap':'round'},host);
  if(labelsVisibleInEditor(project,f)&&view.scale/fitScale>1.6&&(!project.proposal||isSelected)){const p=f.points[Math.floor(f.points.length/2)];label(f.name,[p[0],p[1]-10/view.scale],f.type==='waterway'?'#3187a4':color,$('noteShapes'),10).setAttribute('data-render-id',f.id);}
 }
 function renderRoadNetwork(roads){
  networkJunctions=renderCrossingCache.get(roads);
+ const flatEnds=roadFlatEnds(networkJunctions);
  const levels=[...new Set(roads.map(roadStackLevel))].sort((a,b)=>a-b),style=f=>networkDisplay(f,project.settings.editor,view.scale);
  for(let i=0;i<levels.length;i++){
   const level=levels[i],higher=roads.filter(f=>roadStackLevel(f)>level),group=node('g',{'data-network-level':level},$('roadShapes'));
@@ -137,14 +147,14 @@ function renderRoadNetwork(roads){
   }
   const edgeHost=node('g',{'data-network-casings':level},group);
   const levelRoads=roads.filter(f=>roadStackLevel(f)===level),special=f=>['rail','metro','waterway'].includes(f.type);
-  for(const f of levelRoads.filter(f=>!special(f)))renderNetworkFeature(f,f.id===selected,node('g',{'data-road-id':f.id},group),edgeHost);
+  for(const f of levelRoads.filter(f=>!special(f)))renderNetworkFeature(f,f.id===selected,node('g',{'data-road-id':f.id},group),edgeHost,flatEnds.get(f.id));
   for(const junction of networkJunctions){
    const sectors=junctionSectors(junction,level,f=>style(f).width);if(!sectors.length)continue;
    const joint=node('g',{'data-junction':'at-grade','data-level':level,'data-junction-roads':junction.roads.map(f=>f.id).join(' ')},group);node('title',{},joint).textContent='平交（可互通） · '+[...new Set(sectors.map(s=>s.feature.name))].join(' / ');
    node('path',{d:pathData(sectors[0].outer,true),fill:style(sectors[0].feature).color,stroke:'none','pointer-events':'none'},joint);
    for(const sector of sectors)node('path',{d:pathData(sector.points,true),fill:style(sector.feature).color,stroke:'none','data-id':sector.feature.id,'data-junction-sector':sector.feature.type},joint);
   }
-  for(const f of levelRoads.filter(special))renderNetworkFeature(f,f.id===selected,node('g',{'data-road-id':f.id},group),edgeHost);
+  for(const f of levelRoads.filter(special))renderNetworkFeature(f,f.id===selected,node('g',{'data-road-id':f.id},group),edgeHost,flatEnds.get(f.id));
  }
 }
 function networkCrossingFields(f,disabled){
@@ -247,11 +257,11 @@ $('zonesLock').onclick=()=>{project.settings.zonesLocked=!project.settings.zones
 for(const [id,key]of [['protectExistingToggle','protectExistingZones'],['showNewZonesToggle','showNewZones'],['showNewRoadsToggle','showNewRoads']])$(id).onchange=e=>{project.settings[key]=e.target.checked;if(getSelected()&&!featureVisible(getSelected()))selected=null;render();renderProperties();persist()};
 $('projectNotes').onchange=e=>{checkpoint();project.notes=e.target.value.slice(0,20000);persist()};
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(t=>t.classList.toggle('active',t===b));$('propertiesPanel').hidden=b.dataset.tab!=='properties';$('briefPanel').hidden=b.dataset.tab!=='brief'});
-window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();if($('threeDialog').open)return;document.activeElement?.blur();saveProject(e.shiftKey);}},true);
+window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();if(document.querySelector('dialog[open]'))return;document.activeElement?.blur();saveProject(e.shiftKey);}},true);
 window.addEventListener('pagehide',saveBrowser);
-window.addEventListener('beforeunload',e=>{if(projectDirty||projectSaving){e.preventDefault();e.returnValue='';}});
+window.addEventListener('beforeunload',e=>{if(!window.mapDesktop?.tauri&&(projectDirty||projectSaving)){e.preventDefault();e.returnValue='';}});
 $('helpBtn').onclick=()=>$('helpDialog').showModal();$('closeHelp').onclick=()=>$('helpDialog').close();
-function download(content,name,mime){const url=URL.createObjectURL(new Blob([content],{type:mime}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000)}
+async function download(content,name,mime){if(window.mapDesktop?.exportPick){const target=await window.mapDesktop.exportPick(name);if(!target)throw new DOMException('已取消','AbortError');const bytes=new Uint8Array(await new Blob([content]).arrayBuffer());await window.mapDesktop.write(target.id,bytes);return;}const url=URL.createObjectURL(new Blob([content],{type:mime}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000)}
 $('exportBtn').onclick=()=>saveProject();
 $('importBtn').onclick=openProjectFile;$('importFile').onchange=async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;try{await acceptProjectFile(file);}catch(error){toast('打开失败：'+error.message);}};
 
@@ -347,7 +357,7 @@ $('discardProjectChanges').onclick=()=>{if(pendingProject)installProject(pending
 $('exportPngBtn').onclick=()=>{$('pngResolution').value=project.settings.editor.pngSize;$('pngLabelSize').value=project.settings.editor.labelSize;$('pngStatus').textContent='';$('pngDialog').showModal()};
 async function exportPng(size){const savedView={...view},savedFit=fitScale,savedSelected=selected;let copy;try{selected=null;view={cx:SIZE/2,cy:SIZE/2,scale:size/SIZE};fitScale=view.scale/3;render();copy=svg.cloneNode(true);}finally{selected=savedSelected;view=savedView;fitScale=savedFit;render()}
  for(const mask of copy.querySelectorAll('#networkMasks mask'))for(const [key,value]of Object.entries({x:0,y:0,width:SIZE,height:SIZE}))mask.setAttribute(key,value);copy.setAttribute('viewBox',`0 0 ${SIZE} ${SIZE}`);copy.setAttribute('width',size);copy.setAttribute('height',size);copy.setAttribute('xmlns',NS);copy.querySelector('#editShapes').remove();copy.querySelector('#draftShapes').remove();copy.querySelectorAll('text').forEach(t=>{t.setAttribute('font-family','Microsoft YaHei,Segoe UI,sans-serif');t.setAttribute('font-size',Number($('pngLabelSize').value)/(size/SIZE))});copy.querySelectorAll('[stroke="transparent"]').forEach(x=>x.remove());if(project.settings.base!=='none'){let url=basemapUrl();if(!url.startsWith('data:')){const r=await fetch(url);if(!r.ok)throw Error('底图读取失败');url=await readData(await r.blob())}copy.querySelector('#baseImage').setAttribute('href',url)}
- const blob=new Blob([new XMLSerializer().serializeToString(copy)],{type:'image/svg+xml;charset=utf-8'}),url=URL.createObjectURL(blob);try{const img=await loadImage(url),canvas=document.createElement('canvas');canvas.width=size;canvas.height=size;const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0,size,size);const png=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('PNG编码失败')),'image/png'));download(png,`${project.title}-${size}.png`,'image/png');canvas.width=canvas.height=1;}finally{URL.revokeObjectURL(url)}}
+ const blob=new Blob([new XMLSerializer().serializeToString(copy)],{type:'image/svg+xml;charset=utf-8'}),url=URL.createObjectURL(blob);try{const img=await loadImage(url),canvas=document.createElement('canvas');canvas.width=size;canvas.height=size;const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0,size,size);const png=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('PNG编码失败')),'image/png'));await download(png,`${project.title}-${size}.png`,'image/png');canvas.width=canvas.height=1;}finally{URL.revokeObjectURL(url)}}
 $('confirmPngBtn').onclick=async()=>{if(exporting)return;exporting=true;$('confirmPngBtn').disabled=true;$('pngStatus').textContent='正在生成完整地图…';try{const size=Number($('pngResolution').value);project.settings.editor.pngSize=size;project.settings.editor.labelSize=Math.max(8,Math.min(24,Number($('pngLabelSize').value)||11));await exportPng(size);persist();$('pngStatus').textContent='PNG 已导出。'}catch(e){$('pngStatus').textContent='导出失败：'+e.message}finally{exporting=false;$('confirmPngBtn').disabled=false}};
 // Clicking an object chooses its actual source layer, independent of the active tool.
 svg.addEventListener('pointerdown',e=>{const id=e.target.closest('[data-id]')?.dataset.id;if(tool==='select'&&id){const f=project.features.find(x=>x.id===id);if(f){activeLayer={key:layerKey(f),source:featureSource(project,f)};syncUI()}}});
@@ -533,7 +543,7 @@ function renderLayerProperties(host){
 }
 
 $('exportCartoBtn').onclick=()=>{try{const result=cartoExportRecords(project);$('cartoExportRows').innerHTML=CARTO_EXPORT_LAYERS.map(([name])=>'<tr><td>'+name+'</td><td>'+result.records[name].length+'</td></tr>').join('');$('cartoExportStatus').textContent='包含全部规划对象，隐藏的图层也会导出。';$('cartoExportDialog').showModal();}catch(error){toast(error.message);}};
-$('confirmCartoExport').onclick=async()=>{if(exportCartoBusy)return;exportCartoBusy=true;$('confirmCartoExport').disabled=true;$('cartoExportStatus').textContent='正在生成七个图层及配套文件…';try{await ensureTerrainFiles();const result=exportCarto(project,{terrainFiles:activeTerrainFiles(),includeTerrain:$('cartoIncludeTerrain').checked});download(result.bytes,project.title.replace(/[\\/:*?"<>|]/g,'-')+'-Carto.zip','application/zip');$('cartoExportStatus').textContent='已导出七组 Shapefile。'+result.warnings.join('；')+($('cartoIncludeTerrain').checked&&!activeTerrainFiles().size?'本工程没有原始 GeoTIFF，可通过 Carto 文件夹导入补齐。':'');}catch(error){$('cartoExportStatus').textContent='导出未完成：'+error.message;}finally{exportCartoBusy=false;$('confirmCartoExport').disabled=false;}};
+$('confirmCartoExport').onclick=async()=>{if(exportCartoBusy)return;exportCartoBusy=true;$('confirmCartoExport').disabled=true;$('cartoExportStatus').textContent='正在生成七个图层及配套文件…';try{await ensureTerrainFiles();const result=exportCarto(project,{terrainFiles:activeTerrainFiles(),includeTerrain:$('cartoIncludeTerrain').checked});await download(result.bytes,project.title.replace(/[\\/:*?"<>|]/g,'-')+'-Carto.zip','application/zip');$('cartoExportStatus').textContent='已导出七组 Shapefile。'+result.warnings.join('；')+($('cartoIncludeTerrain').checked&&!activeTerrainFiles().size?'本工程没有原始 GeoTIFF，可通过 Carto 文件夹导入补齐。':'');}catch(error){$('cartoExportStatus').textContent='导出未完成：'+error.message;}finally{exportCartoBusy=false;$('confirmCartoExport').disabled=false;}};
 $('cartoExportPng').onclick=()=>{$('cartoExportDialog').close();$('exportPngBtn').click();};
 
 // Building catalogs contain only the footprint and the dimensions needed for planning.
@@ -610,11 +620,10 @@ function commitPlacedAsset(next){
 function renderPlacedAssetProperties(host,f){
  document.querySelector('.right-panel').classList.add('has-selection');const a=f.assetPlacement,disabled=locked(f)?'disabled':'',center=f.poi;
  const thumb={name:a.assetName,lot:a.lot,rings:[f.points,...(f.additionalParts||[])].map(r=>transformBuildingRing(r.map(p=>[p[0]-center[0],p[1]-center[1]]),[0,0],-a.rotation))};
- host.innerHTML=`<button class="back-layer" id="assetBackLayer">← ${escape(layerName(layerKey(f)))}</button><div class="object-kind">建筑资产 · ${escape(a.packName)}</div><h2 class="property-title">${escape(f.name)}</h2><div class="asset-source-code"><span>来源编号</span><strong>${escape(a.code)}</strong></div>${assetCapacityRows(a)}<div class="asset-object-preview">${assetThumbnail(thumb)}</div><div class="asset-object-metrics"><div><span>地块占地</span><strong>${a.lot.join(' × ')} m</strong></div><div><span>建筑高度</span><strong>${a.height.toFixed(2)} m</strong></div><div><span>建筑投影</span><strong>${a.area.toFixed(1)} m²</strong></div></div><p class="asset-shelf-hint">${disabled?'图层已锁定。':'拖动建筑整体移动，旋转保持真实尺寸。'}</p><label class="field-label" for="placedAssetName">名称</label><input id="placedAssetName" type="text" maxlength="300" value="${escape(f.name)}" ${disabled}><label class="field-label" for="placedAssetColor">显示颜色</label><input id="placedAssetColor" type="color" value="${f.color||'#4b8293'}" ${disabled}><div class="two-fields"><label class="field-label">中心 X (m)<input id="placedAssetX" type="number" step="0.1" value="${center[0].toFixed(2)}" ${disabled}></label><label class="field-label">中心 Y (m)<input id="placedAssetY" type="number" step="0.1" value="${center[1].toFixed(2)}" ${disabled}></label></div><div class="asset-rotation-row"><button id="placedRotateLeft" ${disabled}>↶ 15°</button><label>角度 <input id="placedAssetAngle" type="number" aria-label="建筑旋转角度" step="1" value="${a.rotation}" ${disabled}>°</label><button id="placedRotateRight" ${disabled}>15° ↷</button></div><label class="field-label">离地偏移 (m)<input id="placedAssetOffset" type="number" min="-1000" max="1000" step="0.1" value="${a.heightOffset||0}" ${disabled}></label><label class="check-row"><input id="placedAssetLot" type="checkbox" ${a.showLot?'checked':''} ${disabled}>显示占地框</label><div class="asset-placement-actions"><button id="placeSameAsset">摆放同款</button><button id="locatePlacedAsset">定位</button></div><button id="deleteObject" class="danger-button" ${disabled}>删除建筑</button>`;
+ host.innerHTML=`<button class="back-layer" id="assetBackLayer">← ${escape(layerName(layerKey(f)))}</button><div class="object-kind">建筑资产 · ${escape(a.packName)}</div><h2 class="property-title">${escape(f.name)}</h2><div class="asset-source-code"><span>来源编号</span><strong>${escape(a.code)}</strong></div>${assetCapacityRows(a)}<div class="asset-object-preview">${assetThumbnail(thumb)}</div><div class="asset-object-metrics"><div><span>地块占地</span><strong>${a.lot.join(' × ')} m</strong></div><div><span>建筑高度</span><strong>${a.height.toFixed(2)} m</strong></div><div><span>建筑投影</span><strong>${a.area.toFixed(1)} m²</strong></div></div><p class="asset-shelf-hint">${disabled?'图层已锁定。':'拖动建筑整体移动，旋转保持真实尺寸。'}</p><label class="field-label" for="placedAssetName">名称</label><input id="placedAssetName" type="text" maxlength="300" value="${escape(f.name)}" ${disabled}><label class="field-label" for="placedAssetColor">显示颜色</label><input id="placedAssetColor" type="color" value="${f.color||'#4b8293'}" ${disabled}><div class="two-fields"><label class="field-label">中心 X (m)<input id="placedAssetX" type="number" step="0.1" value="${center[0].toFixed(2)}" ${disabled}></label><label class="field-label">中心 Y (m)<input id="placedAssetY" type="number" step="0.1" value="${center[1].toFixed(2)}" ${disabled}></label></div><div class="asset-rotation-row"><button id="placedRotateLeft" ${disabled}>↶ 15°</button><label>角度 <input id="placedAssetAngle" type="number" aria-label="建筑旋转角度" step="1" value="${a.rotation}" ${disabled}>°</label><button id="placedRotateRight" ${disabled}>15° ↷</button></div><label class="check-row"><input id="placedAssetLot" type="checkbox" ${a.showLot?'checked':''} ${disabled}>显示占地框</label><div class="asset-placement-actions"><button id="placeSameAsset">摆放同款</button><button id="locatePlacedAsset">定位</button></div><button id="deleteObject" class="danger-button" ${disabled}>删除建筑</button>`;
  $('assetBackLayer').onclick=()=>activateLayer(layerKey(f));$('placedAssetName').onchange=e=>{const n=structuredClone(f);n.name=e.target.value.trim()||a.assetName;commitPlacedAsset(n);};$('placedAssetColor').onchange=e=>{const n=structuredClone(f);n.color=e.target.value;commitPlacedAsset(n);};
  const rotate=n=>{if(Number.isFinite(n))commitPlacedAsset(rotateBuildingAsset(f,n));};$('placedAssetAngle').onchange=e=>rotate(Number(e.target.value));$('placedRotateLeft').onclick=()=>rotate(a.rotation-15);$('placedRotateRight').onclick=()=>rotate(a.rotation+15);
  const move=()=>{const xy=[Number($('placedAssetX').value),Number($('placedAssetY').value)];if(xy.every(Number.isFinite))commitPlacedAsset(moveBuildingAsset(f,xy));};$('placedAssetX').onchange=move;$('placedAssetY').onchange=move;
- $('placedAssetOffset').onchange=e=>{const value=Number(e.target.value);if(!Number.isFinite(value)||Math.abs(value)>1000){toast('离地偏移范围为-1000至1000米');return;}const n=structuredClone(f);n.assetPlacement.heightOffset=value;commitPlacedAsset(n);};
  $('placedAssetLot').onchange=e=>{const n=structuredClone(f);n.assetPlacement.showLot=e.target.checked;commitPlacedAsset(n);};$('deleteObject').onclick=deleteSelected;
  $('locatePlacedAsset').onclick=()=>{view.cx=center[0];view.cy=center[1];view.scale=Math.max(view.scale,fitScale*25);render();};$('placeSameAsset').onclick=()=>startAssetPlacement({id:a.packId,name:a.packName},{id:a.assetId,name:a.assetName,code:a.code,type:f.type,lot:a.lot,height:a.height,area:a.area,maxResidents:a.maxResidents??null,maxEmployees:a.maxEmployees??null,rings:thumb.rings});
 }
@@ -629,20 +638,12 @@ svg.addEventListener('click',e=>{if(tool!=='asset-place'||suppressClick||space||
 svg.addEventListener('contextmenu',e=>{if(tool==='asset-place'){e.preventDefault();stopAssetPlacement();}});
 window.addEventListener('keydown',e=>{if(tool!=='asset-place'||!assetSelection||e.ctrlKey||e.metaKey||['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.querySelector('dialog[open]'))return;if(e.key.toLowerCase()==='r'){e.preventDefault();changeAssetAngle(assetSelection.rotation+(e.shiftKey?15:90));}});
 
-let viewer3D=null;
-async function refresh3D(){if(!viewer3D||!$('threeDialog').open)return;try{const viewer=viewer3D;await ensureTerrainFiles();await ensureBuiltinLods(buildingPacksFor(project).filter(p=>project.features.some(f=>f.assetPlacement?.packId===p.id)));if(viewer!==viewer3D||!$('threeDialog').open)return;viewer.options={...viewer3D.options,...Object.fromEntries([...document.querySelectorAll('[data-3d-layer]')].map(e=>[e.dataset['3dLayer'],e.checked])),quality:$('threeQuality').value,waterLevel:Number($('threeWaterLevel').value)||0};if(project.settings.editor.groups.terrain===false){viewer.options.terrain=false;viewer.options.water=false;}await viewer.update({project,raw:activeTerrainFiles(),features:project.features.filter(featureVisible)});}catch(error){$('threeStatus').textContent='3D显示未完成：'+error.message;}}
-$('openThreeView').onclick=async()=>{try{if(!viewer3D){const T=await import(THREE_MODULE_URL);viewer3D=new MapView3D(T,$('threeHost'),$('threeStatus'));}$('threeDialog').showModal();viewer3D.reset(project.mapSize);await refresh3D();}catch(error){toast('无法启动3D视窗：'+error.message);}};
-$('closeThreeView').onclick=()=>$('threeDialog').close();$('threeDialog').addEventListener('close',()=>{viewer3D?.dispose();viewer3D=null;});
-for(const e of document.querySelectorAll('[data-3d-layer],#threeQuality,#threeWaterLevel'))e.onchange=refresh3D;
-$('threeReset').onclick=()=>{viewer3D?.reset(project.mapSize);refresh3D();};
-$('threeFocus').onclick=()=>{const f=getSelected();if(!f){toast('请先在二维地图中选择对象');return;}const p=f.poi||interiorPoint(f.points);viewer3D.target.set(p[0],(viewer3D.groundAt?.(p)||0)+(f.assetPlacement?.heightOffset||0)+(f.assetPlacement?.height||0)*.4,p[1]);viewer3D.radius=Math.max(250,(f.assetPlacement?.height||100)*5);refresh3D();};
 
 let managedPacks=new Set();
 function renderAssetManager(){
  const query=$('assetManagerSearch').value.trim().toLowerCase(),packs=project.assetPacks||[],counts=new Map();
  for(const f of project.features)if(f.assetPlacement)counts.set(f.assetPlacement.packId,(counts.get(f.assetPlacement.packId)||0)+1);
- const size=ref=>{if(!ref)return '—';const native=nativeLodResources.get(ref);return native?(native.file.size/1048576).toFixed(1)+' MB':ref.startsWith('data:')?(ref.length*.75/1048576).toFixed(1)+' MB':'已关联';};
- $('assetManagerList').innerHTML=packs.length?'<table><thead><tr><th>选择</th><th>资产包</th><th>建筑</th><th>已摆放</th><th>LOD2</th><th>LOD1</th></tr></thead><tbody>'+packs.filter(p=>p.name.toLowerCase().includes(query)||p.id.toLowerCase().includes(query)).map(p=>`<tr><td><input type="checkbox" data-manage-pack="${escape(p.id)}" aria-label="选择${escape(p.name)}" ${managedPacks.has(p.id)?'checked':''}></td><td>${escape(p.name)}<small>${escape(p.id)}</small></td><td>${p.assets.length}</td><td>${counts.get(p.id)||0}</td><td>${size(p.lods?.lod2)}</td><td>${size(p.lods?.lod1)}</td></tr>`).join('')+'</tbody></table>':'<p class="muted">当前工程没有导入资产包。</p>';
+ $('assetManagerList').innerHTML=packs.length?'<table><thead><tr><th>选择</th><th>资产包</th><th>建筑</th><th>已摆放</th></tr></thead><tbody>'+packs.filter(p=>p.name.toLowerCase().includes(query)||p.id.toLowerCase().includes(query)).map(p=>`<tr><td><input type="checkbox" data-manage-pack="${escape(p.id)}" aria-label="选择${escape(p.name)}" ${managedPacks.has(p.id)?'checked':''}></td><td>${escape(p.name)}<small>${escape(p.id)}</small></td><td>${p.assets.length}</td><td>${counts.get(p.id)||0}</td></tr>`).join('')+'</tbody></table>':'<p class="muted">当前工程没有导入资产包。</p>';
  for(const box of $('assetManagerList').querySelectorAll('[data-manage-pack]'))box.onchange=()=>{if(box.checked)managedPacks.add(box.dataset.managePack);else managedPacks.delete(box.dataset.managePack);updateAssetManagerSelection();};
  updateAssetManagerSelection();
 }
@@ -699,13 +700,13 @@ $('exportPlanning').onclick=async()=>{
  if(projectSaving)return;projectSaving=true;updateSaveStatus();
  try{const planned=createPlanningProject(project);let handle=null;const name=safeProjectName().replace(/\.cs2map$/,'-手绘规划.cs2map');
  if(window.showSaveFilePicker){handle=await window.showSaveFilePicker({suggestedName:name,types:[{description:'手绘规划工程',accept:{'application/octet-stream':['.cs2map']}}]});if(handle.name===currentFileName)throw Error('请使用不同文件名，避免覆盖完整工程');}
- const externalLods=handle?await desktopLodSaveMap(handle,planned.project.assetPacks):{},bytes=packProject(planned.project,{externalLods,workspace:{kind:'planning-layer',version:1,planningFrame:planned.frame}});
- if(handle){const writer=new ProjectFileWriter();writer.attach(handle,new Uint8Array(await (await handle.getFile()).arrayBuffer()));await writer.save(bytes);}else download(bytes,name,'application/octet-stream');
+ const pack=window.mapDesktop?.tauri?packTauriProject:packProject,bytes=await pack(planned.project,{workspace:{kind:'planning-layer',version:1,planningFrame:planned.frame}});
+ if(handle){const writer=new ProjectFileWriter();writer.attach(handle,new Uint8Array(await (await handle.getFile()).arrayBuffer()));await writer.save(bytes);}else await download(bytes,name,'application/octet-stream');
  toast('手绘规划已单独导出；包含模型时需同时携带同名 .assets 文件夹');
  }catch(error){if(error.name!=='AbortError')toast('规划导出未完成：'+error.message);}finally{projectSaving=false;updateSaveStatus();}
 };
 async function overlayPlanningFile(file){
- if(file.size>512*1024*1024)throw Error('规划文件超过 512 MB');const doc=await unpackProject(await file.arrayBuffer(),{resolveExternal:file.relativeFile});
+ if(file.size>512*1024*1024)throw Error('规划文件超过 512 MB');const doc=await unpackProject(await file.arrayBuffer());
  const frame=doc.workspace?.planningFrame||projectMapFrame(doc.project),matched=checkPlanningFrame(project,frame);
  if(!matched&&!confirm('规划或当前工程缺少地理范围信息，将按相同地图坐标直接叠加。确认两者为同一张地图吗？'))return;
  const result=mergePlanningProject(project,doc.project,{frame});checkpoint();project=result.project;selected=null;selectedNode=null;scopeId='';setTool('select');buildLayers();changed();toast(`已叠加 ${result.count} 个规划对象，更新 ${result.replaced} 个已有规划；游戏现状保留`);
@@ -782,3 +783,164 @@ $('openBuiltinAssets').onclick=()=>openAssetPackage('blob');
 
 $('assetPackSearch').oninput=()=>renderAssetPackages();
 $('zoneOpacitySettings').onclick=()=>{$('zoneOpacityDialog').showModal();};
+
+$('namingStyle').innerHTML=Object.entries(NAME_STYLES).map(([id,style])=>`<option value="${id}">${style.label}</option>`).join('');
+$('namingType').innerHTML=Object.entries(NAME_TYPES).map(([id,label])=>`<option value="${id}">${label}</option>`).join('');
+let namingBatch=[];
+let namingLibraryOpen=false,namingPageIndex=0;
+let namingPoolKey='',namingPool=[];
+const namingPageSize=64;
+function currentNamingPool(){
+ const options=[$('namingStyle').value,$('namingType').value,$('namingLanguage').value];
+ const key=options.join('/');
+ if(key!==namingPoolKey){namingPool=nameCandidates(...options);namingPoolKey=key;}
+ return namingPool;
+}
+function namingTarget(){
+ const feature=getSelected();
+ if(!feature||locked(feature))return null;
+ if(['road','district','zone'].includes(feature.kind))return feature;
+ return feature.kind==='building'&&['education','hospital','residential','commercial','industry','landscape','sports','office'].includes(feature.type)?feature:null;
+}
+async function copyNamingText(value){
+ try{await navigator.clipboard.writeText(value);return true;}catch{
+  const field=document.createElement('textarea');field.value=value;$('namingDialog').append(field);field.select();
+  try{return document.execCommand('copy');}finally{field.remove();}
+ }
+}
+function showNamingResults(){
+ const pool=currentNamingPool(),canApply=!!namingTarget();
+ if(namingLibraryOpen){
+  const query=$('namingSearch').value.trim().toLowerCase();
+  const filtered=query?pool.filter(name=>name.toLowerCase().includes(query)):pool;
+  const pages=Math.max(1,Math.ceil(filtered.length/namingPageSize));
+  namingPageIndex=Math.min(pages-1,Math.max(0,namingPageIndex));
+  namingBatch=filtered.slice(namingPageIndex*namingPageSize,(namingPageIndex+1)*namingPageSize);
+  $('namingPage').value=namingPageIndex+1;
+  $('namingPage').max=pages;
+  $('namingPageTotal').textContent=`共 ${pages} 页`;
+  $('namingPrevPage').disabled=namingPageIndex===0;
+  $('namingNextPage').disabled=namingPageIndex===pages-1;
+  $('namingCountInfo').textContent=`${filtered.length.toLocaleString()} 个名称 · 本页 ${namingBatch.length} 个`;
+ }else{
+  const reserved=[project.title,...project.features.map(f=>f.name)].filter(Boolean);
+  namingBatch=drawNames(pool,Number($('namingCount').value),reserved);
+  $('namingCountInfo').textContent=`${pool.length.toLocaleString()} 个候选 · ${namingBatch.length} 个结果`;
+ }
+ $('namingStatus').textContent=namingBatch.length?(canApply?'可应用到选中的对象':''):'当前条件没有可用的名称';
+ $('copyNameBatch').disabled=!namingBatch.length;
+ $('copyNameBatch').textContent=namingLibraryOpen?'复制本页':'复制本批';
+ $('generateNames').hidden=namingLibraryOpen;
+ $('namingCount').disabled=namingLibraryOpen;
+ $('namingLibraryTools').hidden=!namingLibraryOpen;
+ $('toggleNamingLibrary').textContent=namingLibraryOpen?'返回随机':'查看全部';
+ $('toggleNamingLibrary').setAttribute('aria-pressed',String(namingLibraryOpen));
+ $('namingResults').innerHTML=namingBatch.map((name,i)=>{
+  const lines=name.split(' / ').map(part=>`<span>${escape(part)}</span>`).join('');
+  const apply=canApply?`<button data-apply-name="${i}" aria-label="应用 ${escape(name)}">应用</button>`:'';
+  return `<li><div class="naming-item-text">${lines}</div><div class="naming-item-actions"><button data-copy-name="${i}" aria-label="复制 ${escape(name)}">复制</button>${apply}</div></li>`;
+ }).join('');
+ $('namingResults').scrollTop=0;
+}
+function refreshNamingSelection(){namingPageIndex=0;showNamingResults();}
+$('openNamingTool').onclick=()=>{
+ const menu=$('openNamingTool').closest('details');if(menu)menu.open=false;
+ namingLibraryOpen=false;showNamingResults();$('namingDialog').showModal();
+};
+$('generateNames').onclick=showNamingResults;
+$('toggleNamingLibrary').onclick=()=>{
+ namingLibraryOpen=!namingLibraryOpen;
+ $('namingSearch').value='';refreshNamingSelection();
+ if(namingLibraryOpen)$('namingSearch').focus();
+};
+for(const id of ['namingStyle','namingType','namingLanguage','namingCount'])$(id).onchange=refreshNamingSelection;
+$('namingSearch').oninput=refreshNamingSelection;
+$('namingPrevPage').onclick=()=>{namingPageIndex--;showNamingResults();};
+$('namingNextPage').onclick=()=>{namingPageIndex++;showNamingResults();};
+$('namingPage').onchange=()=>{namingPageIndex=Math.floor(Number($('namingPage').value)||1)-1;showNamingResults();};
+$('copyNameBatch').onclick=async()=>{
+ const label=namingLibraryOpen?'本页':'本批';
+ const copied=await copyNamingText(namingBatch.join('\n'));
+ $('namingStatus').textContent=copied?`已复制${label}名称`:'复制失败，可选中文本手动复制';
+};
+$('namingResults').onclick=async event=>{
+ const button=event.target.closest('button');if(!button)return;
+ if(button.dataset.copyName!==undefined){$('namingStatus').textContent=await copyNamingText(namingBatch[Number(button.dataset.copyName)])?'已复制名称':'复制失败，可选中文本手动复制';return;}
+ const target=namingTarget(),name=namingBatch[Number(button.dataset.applyName)];
+ if(!target||!name)return;
+ checkpoint();target.name=name;$('namingDialog').close();changed();toast('已应用名称');
+};
+
+window.mapDesktop?.onClose?.(async()=>{if(projectSaving){toast('正在保存工程');return;}if(!projectDirty||await window.mapDesktop.confirmDiscard())await window.mapDesktop.exit();});
+
+$('aboutApp').onclick=()=>{
+ $('aboutLinkStatus').hidden=true;
+ $('aboutDialog').showModal();
+};
+$('aboutDialog').addEventListener('click',async event=>{
+ const link=event.target.closest('[data-reference]');
+ if(!link||!window.mapDesktop?.openReference)return;
+ event.preventDefault();
+ $('aboutLinkStatus').hidden=true;
+ try{await window.mapDesktop.openReference(link.dataset.reference);}
+ catch(error){$('aboutLinkStatus').textContent=error.message||String(error);$('aboutLinkStatus').hidden=false;}
+});
+
+if(window.mapDesktop?.assetCodecs){
+ const dialog=$('assetExtractorDialog'),open=$('openAssetExtractor');
+ const start=$('extractorStart'),progress=$('extractorProgress'),status=$('extractorStatus'),results=$('extractorResults');
+ const pickFiles=$('extractorPickFiles'),pickFolder=$('extractorPickFolder'),pickOutput=$('extractorPickOutput');
+ const close=dialog.querySelector('[data-close]');
+ const cokFile=info=>info.kind==='file'&&/\.cok$/i.test(info.name);
+ let files=[],destination=null,busy=false;
+ function refreshExtractor(){
+  for(const button of [pickFiles,pickFolder,pickOutput,close])button.disabled=busy;
+  start.disabled=busy||!files.length||!destination;
+  $('extractorSources').textContent=files.length===1?files[0].name:files.length?files.length+' 个资产包':'未选择资产包';
+  $('extractorDestination').textContent=destination?.name||'未选择输出文件夹';
+ }
+ async function chooseExtractor(action){
+  busy=true;refreshExtractor();
+  try{await action();}
+  catch(error){status.textContent=String(error.message||error);}
+  finally{busy=false;refreshExtractor();}
+ }
+ open.onclick=()=>{refreshExtractor();dialog.showModal();};
+ dialog.addEventListener('cancel',event=>{if(busy)event.preventDefault();});
+ pickFiles.onclick=()=>chooseExtractor(async()=>{
+  const selected=await window.mapDesktop.pick('cok');
+  if(selected)files=selected.filter(cokFile);
+ });
+ pickFolder.onclick=()=>chooseExtractor(async()=>{
+  const folder=await window.mapDesktop.pick('directory');
+  if(!folder)return;
+  files=(await window.mapDesktop.entries(folder.id)).filter(cokFile).sort((a,b)=>a.name.localeCompare(b.name,'zh'));
+  status.textContent=files.length?'只处理所选文件夹中的 .cok 文件。':'这个文件夹里没有 .cok 文件。';
+ });
+ pickOutput.onclick=()=>chooseExtractor(async()=>{destination=await window.mapDesktop.pick('directory')||destination;});
+ start.onclick=async()=>{
+  busy=true;refreshExtractor();results.replaceChildren();
+  progress.max=files.length;progress.value=0;
+  let succeeded=0,buildings=0;
+  try{
+   for(const [index,info] of files.entries()){
+    status.textContent=`正在读取 ${index+1}/${files.length} · ${info.name}`;
+    const result=document.createElement('li');
+    try{
+     const output=await extractCokLibrary(desktopFile(info),window.mapDesktop.assetCodecs,(done,total)=>{
+      progress.value=index+done/total;
+      status.textContent=`正在提取 ${index+1}/${files.length} · 建筑 ${done}/${total} · ${info.name}`;
+     });
+     const name=await window.mapDesktop.writeExtractedAsset(destination.id,output.name,JSON.stringify(output.library));
+     result.textContent=`${name} · ${output.count} 个建筑`;
+     succeeded++;buildings+=output.count;
+    }catch(error){
+     result.textContent=`${info.name} · ${error.message||error}`;result.className='extractor-error';
+    }
+    results.append(result);progress.value=index+1;
+   }
+   status.textContent=`已导出 ${succeeded}/${files.length} 个资产包，共 ${buildings} 个建筑。`+
+     (succeeded?' 可从“资产 → 导入建筑资产包”导入。':'');
+  }finally{busy=false;refreshExtractor();}
+ };
+}

@@ -18,7 +18,9 @@ test('unequal-width level crossing has four wedges that exactly fill the shared 
 });
 test('T junctions, bends at existing vertices and oblique junctions retain one shared node',()=>{
  const t=road('t','local',[[500,500],[500,700]],{width:20}),split={...a,points:[[300,500],[500,500],[700,500]]};
- const nodes=buildNetworkCrossings([split,t]);assert.equal(nodes.length,1);assert.equal(nodes[0].arms.length,3);assert.equal(junctionSectors(nodes[0],0).length,3);
+ const nodes=buildNetworkCrossings([split,t]);assert.equal(nodes.length,1);assert.equal(nodes[0].arms.length,3);const tee=junctionSectors(nodes[0],0);assert.equal(tee.length,3);
+ const corners=tee[0].outer;const centroid=[0,1].map(k=>corners.reduce((sum,p)=>sum+p[k]/3,0));
+ for(const s of tee)assert.deepEqual(s.points[0],centroid);
  const oblique=road('o','local',[[350,350],[650,650]],{width:20}),x=buildNetworkCrossings([a,oblique])[0];assert.equal(junctionSectors(x,0).length,4);for(const s of junctionSectors(x,0))for(const p of s.points)assert(p.every(Number.isFinite));
  assert.equal(buildNetworkCrossings([a,road('parallel','local',[[300,510],[700,510]])]).length,0);
 });
@@ -35,7 +37,7 @@ test('rail, subway, waterways and route lines do not become road interchanges',(
 });
 test('acute angles and zero-length segments produce finite bounded sectors',()=>{
  const narrow=road('narrow','local',[[300,499.9],[700,500.1]],{width:20}),n=buildNetworkCrossings([{...a,points:[[300,500],[300,500],[700,500]]},narrow])[0];
- for(const s of junctionSectors(n,0))for(const p of s.points){assert(p.every(Number.isFinite));assert(Math.hypot(p[0]-500,p[1]-500)<=160.00001);}
+ for(const s of junctionSectors(n,0))for(const p of s.points){assert(p.every(Number.isFinite));assert(Math.hypot(p[0]-500,p[1]-500)<=40.00001);}
 });
 test('custom crossing levels persist through project and Carto export/import, with legacy automatic defaults',async()=>{
  const p=prepareEditor({...initialProject(),features:[{...a,stackLevel:-2},{...b,structure:'bridge',stackLevel:0}]});

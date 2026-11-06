@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Map Design",
+  "version": "0.4.0",
+  "identifier": "io.github.acrabtans.cs2-map-design",
+  "build": { "frontendDist": "../dist" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{ "label": "main", "create": false, "title": "天际线Ⅱ地图规划设计器", "width": 1540, "height": 980, "minWidth": 1000, "minHeight": 700, "dragDropEnabled": false }],
+    "security": { "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'" }
+  },
+  "bundle": { "active": false, "icon": ["icons/icon.ico"] }
+}

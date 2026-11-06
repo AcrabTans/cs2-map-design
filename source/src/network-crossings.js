@@ -54,19 +54,55 @@ export function junctionSectors(junction,level,widthFor=f=>f.width){
  }
  if(arms.length<3||new Set(arms.map(a=>a.feature.id)).size<2)return [];
  arms.sort((a,b)=>a.angle-b.angle||a.feature.id.localeCompare(b.feature.id));
- const maxRadius=Math.max(...arms.map(a=>a.width))*4;
+ // Keep acute corners near the join. Intersecting unbounded edges produces spikes
+ // when two arms are almost parallel, particularly at unequal widths.
+ const reach=Math.max(...arms.map(a=>a.width))/2;
  const corners=arms.map((a,i)=>{
   const b=arms[(i+1)%arms.length],u=a.direction,v=b.direction;
-  const left=[-u[1]*a.width/2,u[0]*a.width/2],right=[v[1]*b.width/2,-v[0]*b.width/2],den=crossingCross(u,v);
-  let p;
-  if(Math.abs(den)<1e-6)p=[(left[0]+right[0])/2,(left[1]+right[1])/2];
-  else{const t=crossingCross(crossingSubtract(right,left),v)/den;p=[left[0]+u[0]*t,left[1]+u[1]*t];}
-  // Acute angles must not create long spikes beyond the junction.
-  const len=Math.hypot(...p);if(len>maxRadius)p=p.map(v=>v*maxRadius/len);
-  return p.map((v,k)=>v+junction.point[k]);
+  const left=[-u[1]*a.width/2,u[0]*a.width/2],right=[v[1]*b.width/2,-v[0]*b.width/2];
+  const den=crossingCross(u,v),offset=crossingSubtract(right,left);
+  const bound=t=>Math.max(0,Math.min(reach,t));
+  const t=den>crossingEpsilon?bound(crossingCross(offset,v)/den):0;
+  const q=den>crossingEpsilon?bound(crossingCross(offset,u)/den):0;
+  return left.map((value,k)=>junction.point[k]+(value+u[k]*t+right[k]+v[k]*q)/2);
  });
- return arms.map((a,i)=>({feature:a.feature,points:[junction.point,corners[(i+arms.length-1)%arms.length],corners[i]],outer:corners}));
+ const centroid=corners.reduce((sum,p)=>[sum[0]+p[0]/corners.length,sum[1]+p[1]/corners.length],[0,0]);
+ const center=corners.length===4?crossingPoint(corners[0],corners[2],corners[1],corners[3])||centroid:centroid;
+ return arms.map((a,i)=>({feature:a.feature,points:[center,corners[(i+arms.length-1)%arms.length],corners[i]],outer:corners}));
 }
+
+export function roadFlatEnds(junctions){
+ const byRoad=new Map();
+ for(const junction of junctions){
+  const ends=[];
+  for(const f of junction.roads.filter(isStreetRoad)){
+   const parts=[f.points,...(f.additionalParts||[])];
+   parts.forEach((part,index)=>{
+    for(const side of ['start','end']){
+     const start=side==='start',point=start?part[0]:part.at(-1);
+     if(!point||crossingDistance(point,junction.point)>crossingEpsilon)continue;
+     const distinct=p=>crossingDistance(p,point)>crossingEpsilon;
+     const next=start?part.find(distinct):part.findLast(distinct);
+     if(!next)continue;
+     const distance=crossingDistance(next,point),direction=crossingSubtract(next,point).map(n=>n/distance);
+     ends.push({f,index,side,direction});
+    }
+   });
+  }
+  // The junction fill owns the footprint at a T. A round cap from any of its
+  // terminal segments can extend beyond that footprint and show through.
+  const teeLevels=new Set([...new Set(ends.map(end=>roadStackLevel(end.f)))].filter(level=>junctionSectors(junction,level).length===3));
+  for(const end of ends){
+   const continues=ends.some(other=>other.f.id!==end.f.id&&other.f.structure!==end.f.structure&&
+    end.direction[0]*other.direction[0]+end.direction[1]*other.direction[1]<-.95);
+   if(!continues&&!teeLevels.has(roadStackLevel(end.f)))continue;
+   if(!byRoad.has(end.f.id))byRoad.set(end.f.id,new Set());
+   byRoad.get(end.f.id).add(`${end.index}:${end.side}`);
+  }
+ }
+ return byRoad;
+}
+
 export function crossingRelation(a,b){
  const delta=roadStackLevel(a)-roadStackLevel(b);
  if(delta)return delta>0?'above':'below';

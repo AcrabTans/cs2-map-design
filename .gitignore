@@ -8,6 +8,7 @@
 /tools/资产提取器/依赖/python/
 *.exe
 *.dll
+!/source/vendor/asset-codecs/*.dll
 *.pak
 *.bin
 *.cok
@@ -24,6 +25,8 @@ __pycache__/
 node_modules/
 
 .test-*.txt
-!source/src/assets/blob-lod2.glb
 
-!source/src/assets/*-lod2.glb
+
+/source/dist/
+/source/src-tauri/target/
+/source/src-tauri/gen/

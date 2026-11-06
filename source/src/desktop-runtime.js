@@ -1,7 +1,7 @@
 export function desktopFile(info){
  const api=window.mapDesktop;
  const range=(start=0,end=info.size)=>({arrayBuffer:async()=>{const bytes=await api.read(info.id,start,end);return new Uint8Array(bytes).buffer;},text:async()=>new TextDecoder().decode(await api.read(info.id,start,end))});
- return {name:info.name,size:info.size,nativeId:info.id,...range(),slice:range,relativeFile:async path=>desktopFile(await api.relative(info.id,path))};
+ return {name:info.name,size:info.size,nativeId:info.id,...range(),slice:range};
 }
 export function desktopHandle(info){
  const api=window.mapDesktop;
@@ -12,7 +12,6 @@ export function installDesktopPickers(){
  if(!window.mapDesktop)return;
  document.documentElement.classList.add('desktop-app');
  installDesktopMenu();
- window.mapDesktop.onCommand?.(id=>{const button=document.getElementById(id);if(button&&!button.disabled&&!document.querySelector('dialog[open]'))button.click();});
  const cancelled=()=>new DOMException('已取消','AbortError');
  window.showOpenFilePicker=async()=>{const info=await window.mapDesktop.pick('project');if(!info)throw cancelled();return info.map(desktopHandle);};
  window.showSaveFilePicker=async options=>{const info=await window.mapDesktop.savePick(options?.suggestedName);if(!info)throw cancelled();return desktopHandle(info);};
@@ -20,7 +19,7 @@ export function installDesktopPickers(){
 }
 export function lightHistorySnapshot(project){
  const {assetPacks,basemaps,rasters,...state}=project;
- return {state:JSON.stringify(state),assetPacks:(assetPacks||[]).map(p=>({...p,...(p.lods?{lods:{...p.lods}}:{})})),basemaps:(basemaps||[]).map(b=>({...b})),rasters:(rasters||[]).map(r=>({...r,metadata:{...r.metadata}}))};
+ return {state:JSON.stringify(state),assetPacks:(assetPacks||[]).map(p=>({...p})),basemaps:(basemaps||[]).map(b=>({...b})),rasters:(rasters||[]).map(r=>({...r,metadata:{...r.metadata}}))};
 }
 export function restoreHistorySnapshot(snapshot){return {...JSON.parse(snapshot.state),assetPacks:snapshot.assetPacks,basemaps:snapshot.basemaps,rasters:snapshot.rasters};}
 

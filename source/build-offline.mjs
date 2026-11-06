@@ -1,7 +1,7 @@
 import {unpackProject} from './src/project-file.js';
 import {terrainFingerprint} from './src/terrain.js';
 import {deflateSync} from 'node:zlib';
-import {readFile,writeFile,mkdir,readdir,copyFile} from 'node:fs/promises';
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {validateProject} from './src/model.js';
@@ -14,8 +14,8 @@ const seedDocument=options['--project']?await unpackProject(new Uint8Array(await
 const seed=seedDocument?validateProject(seedDocument.project):null;if(seed&&seedDocument.savedAt)seed.editorSavedAt=Date.parse(seedDocument.savedAt)||seed.editorSavedAt;
 const read=f=>readFile(path.join(root,f),'utf8');
 const images={...seedDocument?.baseImages};if(options['--satellite'])images.satellite='data:image/png;base64,'+(await readFile(path.resolve(root,options['--satellite']))).toString('base64');
+const tauriBridge=await read('src/tauri-bridge.js');
 const desktopRuntime=(await read('src/desktop-runtime.js')).replace(/^export /gm,'');
-const nativeLod=(await read('src/native-lod.js')).replace(/^export /gm,'');
 const archiveSource=(await read('src/archive.js')).replace(/^export /gm,'');
 const projectFileSource=(await read('src/project-file.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
 const cartoExportSource=(await read('src/carto-export.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
@@ -32,10 +32,10 @@ const editPerformanceSource=(await read('src/edit-performance.js')).replace(/^ex
 const terrain=(await read('src/terrain.js')).replace(/^export /gm,'');
 const carto=(await read('src/carto.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
 let fileStore=(await read('src/file-store.js')).replace(/^export /gm,'');
-const threeModuleUrl='data:text/javascript;base64,'+(await readFile(path.join(root,'src/vendor/three.module.min.js'))).toString('base64');
-const asset3d=(await read('src/asset-3d.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
-const builtinLodSource=(await read('src/builtin-lod.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
-const view3d=(await read('src/view-3d.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
+const meshoptSource=(await read('../tools/资产提取器/依赖/vendor/meshopt_decoder.mjs')).replace(/^export .*?;\r?\n/gm,'');
+const cokSource=(await read('src/cok-format.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
+const extractorSource=(await read('src/asset-extractor.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
+const namingSource=(await read('src/name-generator.js')).replace(/^export /gm,'');
 let app=(await read('src/app.js')).replace(/^import .*?;\r?\n/gm,'');
 app=app.replace("KEY='island-planner-v1'",`KEY='${storageKey}'`);
 if(seed){
@@ -51,17 +51,11 @@ const terrainCorrectionScript=seed&&terrainCorrection?'const TERRAIN_CORRECTION=
 const seedScript=seed?`const SEED_PROJECT=${JSON.stringify(seed).replaceAll('<','\\u003c')};\n`:'';
 const patch=options['--patch']?JSON.parse(await readFile(path.resolve(root,options['--patch']),'utf8')):null;
 const patchScript=patch?`const PROJECT_PATCH=${JSON.stringify(patch).replaceAll('<','\\u003c')};\n`:'';
-html=html.replace('<link rel="stylesheet" href="style.css">',`<style>${await read('src/style.css')}</style>`).replace('href="assets/qgis.png"',`href="${images.qgis||''}"`).replace('<script type="module" src="app.js"></script>',`<script type="module">const BASEMAPS=${JSON.stringify(images)};const THREE_MODULE_URL=${JSON.stringify(threeModuleUrl)};\n${seedScript}${projectSeedExtras}${terrainCorrectionScript}${patchScript}${buildingAssetData}
-${desktopRuntime}\n${nativeLod}\n${buildingAssetSource}
-${model}\n${archiveSource}\n${projectFileSource}\n${projectFolderSource}\n${planningSource}\n${cartoExportSource}\n${networkDisplaySource}\n${networkCrossingsSource}\n${editPerformanceSource}\n${terrain}\n${carto}\n${fileStore}\n${asset3d}\n${builtinLodSource}\n${view3d}\n${app}</script>`);
+html=html.replace('<link rel="stylesheet" href="style.css">',`<style>${await read('src/style.css')}</style>`).replace('href="assets/qgis.png"',`href="${images.qgis||''}"`).replace('<script type="module" src="app.js"></script>',`<script type="module">const BASEMAPS=${JSON.stringify(images)};\n${seedScript}${projectSeedExtras}${terrainCorrectionScript}${patchScript}${buildingAssetData}
+${tauriBridge}\n${desktopRuntime}\n${buildingAssetSource}
+${model}\n${archiveSource}\n${projectFileSource}\n${projectFolderSource}\n${planningSource}\n${cartoExportSource}\n${networkDisplaySource}\n${networkCrossingsSource}\n${editPerformanceSource}\n${terrain}\n${carto}\n${fileStore}\n${namingSource}\n${meshoptSource}\n${cokSource}\n${extractorSource}\n${app}</script>`);
 if(seed){const title=String(options['--title']||'优化初稿 01').replace(/[<>&"']/g,'');html=html.replace('<title>岛屿蓝图 · 天际线 II 规划台</title>',`<title>岛屿蓝图 · ${title}</title>`).replace('天际线 II <small>',`${title} <small>`).replace('REVISION 02',String(seed.proposal?.revision||'本轮建议').replace(/[<>&"']/g,''));}
 const output=path.resolve(root,options['--output']||'../index.html');
 await mkdir(path.dirname(output),{recursive:true});
 await writeFile(output,html);
-const assetOutput=path.join(path.dirname(output),'assets');await mkdir(assetOutput,{recursive:true});
-for(const file of await readdir(path.join(root,'src/assets'))){if(!file.endsWith('-lod2.glb'))continue;const bundled=path.join(root,'src/assets',file),id=file.slice(0,-9);
- if(path.dirname(output)===path.resolve(root,'../resources/app'))await copyFile(bundled,path.join(assetOutput,file));
- else await writeFile(path.join(assetOutput,id+'-lod2.js'),'globalThis.MAP_BUILTIN_LODS??={};globalThis.MAP_BUILTIN_LODS['+JSON.stringify(id)+']="data:model/gltf-binary;base64,'+(await readFile(bundled)).toString('base64')+'";');
-}
-if(path.dirname(output)===path.resolve(root,'../resources/app'))for(const file of await readdir(path.join(root,'desktop')))if(file.endsWith('.cjs'))await copyFile(path.join(root,'desktop',file),path.join(path.dirname(output),file));
 console.log('Offline HTML generated: '+output);

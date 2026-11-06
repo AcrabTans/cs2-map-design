@@ -41,7 +41,7 @@ export function createPlanningProject(project){
 export function mergePlanningProject(project,incoming,{frame=null}={}){
  checkPlanningFrame(project,frame);
  const planned=createPlanningProject(incoming).project,next=structuredClone(project),packs=new Map(next.assetPacks.map(p=>[p.id,p]));
- for(const p of planned.assetPacks){const old=packs.get(p.id);if(old&&JSON.stringify(old.assets)!==JSON.stringify(p.assets))throw Error('同编号资产包内容不同：'+p.name);packs.set(p.id,old?{...old,lods:{...old.lods,...p.lods}}:p);}
+ for(const p of planned.assetPacks){const old=packs.get(p.id);if(old&&JSON.stringify(old.assets)!==JSON.stringify(p.assets))throw Error('同编号资产包内容不同：'+p.name);packs.set(p.id,old||p);}
  next.assetPacks=[...packs.values()];const features=new Map(next.features.map(f=>[f.id,f]));let replaced=0;
  for(const f of planned.features){const old=features.get(f.id);if(old&&originForFeature(old)==='carto')throw Error('规划编号与游戏现状冲突，请先复制为规划对象');if(old)replaced++;features.set(f.id,f);}
  next.features=[...features.values()];next.settings.editor.origins.planning=true;

@@ -5,7 +5,7 @@ export function validateBuildingPacks(packs=[]){
  if(!Array.isArray(packs)||packs.length>100)throw Error('建筑资产包数量无效');
  const ids=new Set();let total=0,vertices=0;
  for(const p of packs){
-  if(!p||typeof p.id!=='string'||!p.id||p.id.length>100||ids.has(p.id)||typeof p.name!=='string'||!p.name.trim()||p.name.length>300||!Array.isArray(p.assets)||!p.assets.length)throw Error('建筑资产包信息无效');if(p.lods!==undefined&&(!p.lods||typeof p.lods!=='object'||Array.isArray(p.lods)||Object.entries(p.lods).some(([k,v])=>!['lod1','lod2'].includes(k)||typeof v!=='string'||v.length>360*1024*1024||!v.startsWith('data:model/gltf-binary;base64,')&&!/^native-lod:[a-zA-Z0-9-]+$/.test(v)&&!BUILTIN_BUILDING_PACKS.some(b=>b.lods?.lod2===v))||p.lods.lod1&&!p.lods.lod2))throw Error('建筑LOD数据或顺序无效');ids.add(p.id);const assetIds=new Set();
+  if(!p||typeof p.id!=='string'||!p.id||p.id.length>100||ids.has(p.id)||typeof p.name!=='string'||!p.name.trim()||p.name.length>300||!Array.isArray(p.assets)||!p.assets.length)throw Error('建筑资产包信息无效');ids.add(p.id);const assetIds=new Set();
   for(const a of p.assets){
    if(++total>20000||!a||typeof a.id!=='string'||!a.id||a.id.length>100||assetIds.has(a.id)||typeof a.name!=='string'||!a.name.trim()||a.name.length>300||typeof a.code!=='string'||a.code.length>300||!buildingAssetTypes.includes(a.type))throw Error('建筑资产名称或分类无效');assetIds.add(a.id);
    if(!Array.isArray(a.lot)||a.lot.length!==2||a.lot.some(v=>!Number.isFinite(v)||v<=0||v>10000)||!Number.isFinite(a.height)||a.height<=0||a.height>2000||!Number.isFinite(a.area)||a.area<=0||a.area>1e8)throw Error('建筑占地或高度无效');
@@ -14,10 +14,10 @@ export function validateBuildingPacks(packs=[]){
    vertices+=a.rings.reduce((n,r)=>n+r.length,0);if(vertices>2000000)throw Error('建筑资产库数据过大');
   }
  }
- return structuredClone(packs).map(p=>({...p,assets:p.assets.map(a=>({...a,maxResidents:a.maxResidents??null,maxEmployees:a.maxEmployees??null}))}));
+ return structuredClone(packs.map(({lods,...p})=>p)).map(p=>({...p,assets:p.assets.map(a=>({...a,maxResidents:a.maxResidents??null,maxEmployees:a.maxEmployees??null}))}));
 }
-export function buildingPacksFor(project){const merged=new Map(BUILTIN_BUILDING_PACKS.map(p=>[p.id,p]));for(const p of project.assetPacks||[]){const builtin=merged.get(p.id);if(!builtin){merged.set(p.id,p);continue;}const assets=new Map(builtin.assets.map(a=>[a.id,a]));for(const a of p.assets){const b=assets.get(a.id);assets.set(a.id,b?{...b,...a,...(!a.catalogCategory?{type:b.type,catalogCategory:b.catalogCategory,catalogLabel:b.catalogLabel,catalogSubcategory:b.catalogSubcategory}:{})}:a);}merged.set(p.id,{...builtin,...p,lods:{...builtin.lods,...p.lods},assets:[...assets.values()]});}return [...merged.values()];}
-export function includePlacedAsset(project,pack,asset){const packs=[...(project.assetPacks||[])],i=packs.findIndex(p=>p.id===pack.id);if(i>=0&&packs[i].assets.some(a=>a.id===asset.id))return project;const old=i>=0?packs[i]:{id:pack.id,name:pack.name,assets:[],...(pack.lods?{lods:pack.lods}:{})},next={...old,assets:[...old.assets,asset]};if(i>=0)packs[i]=next;else packs.push(next);return {...project,assetPacks:packs};}
+export function buildingPacksFor(project){const merged=new Map(BUILTIN_BUILDING_PACKS.map(p=>[p.id,p]));for(const p of project.assetPacks||[]){const builtin=merged.get(p.id);if(!builtin){merged.set(p.id,p);continue;}const assets=new Map(builtin.assets.map(a=>[a.id,a]));for(const a of p.assets){const b=assets.get(a.id);assets.set(a.id,b?{...b,...a,...(!a.catalogCategory?{type:b.type,catalogCategory:b.catalogCategory,catalogLabel:b.catalogLabel,catalogSubcategory:b.catalogSubcategory}:{})}:a);}merged.set(p.id,{...builtin,...p,assets:[...assets.values()]});}return [...merged.values()];}
+export function includePlacedAsset(project,pack,asset){const packs=[...(project.assetPacks||[])],i=packs.findIndex(p=>p.id===pack.id);if(i>=0&&packs[i].assets.some(a=>a.id===asset.id))return project;const old=i>=0?packs[i]:{id:pack.id,name:pack.name,assets:[]},next={...old,assets:[...old.assets,asset]};if(i>=0)packs[i]=next;else packs.push(next);return {...project,assetPacks:packs};}
 export function readBuildingLibrary(data){if(data?.format!=='cs2-building-assets'||data.version!==1||!data.packs?.length)throw Error('请选择包含建筑的 .cs2assets 资产库文件');return validateBuildingPacks(data.packs);}
 export function catalogPage(pack,{category='all',query='',page=0,pageSize=32}={}){const q=query.trim().toLowerCase(),filtered=pack.assets.filter(a=>(category==='all'||(a.catalogCategory||a.type)===category)&&(!q||[a.name,a.code,a.catalogLabel,a.catalogSubcategory].join(' ').toLowerCase().includes(q)));const pages=Math.max(1,Math.ceil(filtered.length/pageSize)),index=Math.max(0,Math.min(page,pages-1));return {assets:filtered.slice(index*pageSize,(index+1)*pageSize),total:filtered.length,page:index,pages};}
 export const buildingAngle=v=>((v%360)+360)%360;
@@ -48,4 +48,31 @@ export function removeProjectAssetPacks(project,ids,{removePlaced=false}={}){
  const used=project.features.filter(f=>selected.has(f.assetPlacement?.packId));
  if(used.length&&!removePlaced)throw Error('所选包有 '+used.length+' 栋已摆放建筑，请先取消选择这些包，或勾选同时移除建筑');
  return {...project,assetPacks:project.assetPacks.filter(p=>!selected.has(p.id)),features:project.features.filter(f=>!selected.has(f.assetPlacement?.packId))};
+}
+
+export async function readAssetSelection(files){
+ if(!files.length||files.some(file=>!/\.(cs2assets|json)$/i.test(file.name)))throw Error('请选择二维投影资产包');
+ const packs=[];
+ for(const file of files){
+  if(file.size>256*1024*1024)throw Error('投影文件过大');
+  packs.push(...readBuildingLibrary(JSON.parse(await file.text())));
+ }
+ return validateBuildingPacks(packs);
+}
+
+// A matching built-in projection is already available by pack and asset ID.
+export function projectAssetPacksForSave(packs){
+ const builtins=new Map(BUILTIN_BUILDING_PACKS.map(pack=>[pack.id,pack]));
+ const saved=[];
+ for(const pack of packs){
+  const builtin=builtins.get(pack.id);
+  if(!builtin){saved.push(pack);continue;}
+  const definitions=new Map(builtin.assets.map(asset=>[asset.id,asset]));
+  const assets=pack.assets.filter(asset=>{
+   const original=definitions.get(asset.id);
+   return !original||Object.entries(asset).some(([key,value])=>JSON.stringify(value)!==JSON.stringify(original[key]));
+  });
+  if(assets.length)saved.push({...pack,assets});
+ }
+ return saved;
 }
