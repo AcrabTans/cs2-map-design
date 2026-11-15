@@ -9,6 +9,17 @@ async function inspect(features,omit=[]){
  const entries=await readZip(exportCarto(prepareEditor({...initialProject(),features})).bytes);
  return inspectCartoFolder([...entries].filter(([path])=>!omit.some(layer=>path.split('/').at(-1).startsWith(layer+'.'))).map(([path,bytes])=>({name:path.split('/').at(-1),webkitRelativePath:path,size:bytes.length,arrayBuffer:async()=>bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),text:async()=>new TextDecoder().decode(bytes)})));
 }
+
+test('Carto roundtrips distinguish neighborhood collectors, alleys and paths',async()=>{
+ const roads=[
+  {...road('collector',200),type:'local-wide',width:24,corridor:34,attributes:{Lane:4}},
+  {...road('alley',300),type:'alley',width:8,corridor:12},
+  {...road('path',400),type:'path',width:12,corridor:20}
+ ];
+ const reopened=mergeCartoImport(initialProject(),await inspect(roads),[]).project;
+ assert.deepEqual(reopened.features.map(f=>[f.type,f.width]),[['local-wide',24],['alley',8],['path',12]]);
+ assert.equal(reopened.features[0].attributes.Lane,4);
+});
 test('updating a same-map Carto snapshot replaces its old/deleted roads and retains separate hand-drawn planning',async()=>{
  const first=await inspect([road('existing-a',200),road('deleted-in-game',400)]);
  let project=mergeCartoImport(prepareEditor(initialProject()),first,[]).project;

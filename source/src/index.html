@@ -76,7 +76,7 @@
  <section id="localPlanForm" hidden>
   <label class="field-label" for="localPlanDistrict">片区</label>
   <select id="localPlanDistrict"></select>
-  <p class="muted">可在地图上选择片区。沿现状道路和可接入的支路布置建筑资产，按用途与高度留出退让。</p>
+  <p class="muted">可在地图上选择片区。沿现状道路和可接入的支路布置建筑资产。再次生成可比较不同的路网、地块和资产搭配。</p>
   <label class="field-label" for="localPlanAngle">内部道路方向（度）</label>
   <input id="localPlanAngle" type="number" min="0" max="179" placeholder="自动参考南北与外围道路">
   <label class="field-label" for="localPlanConnectionMode">外部接点</label>
@@ -117,7 +117,7 @@
 <dialog id="namingDialog"><div class="dialog-header"><h2>取名工具</h2><button data-close="namingDialog" aria-label="关闭取名工具">×</button></div><div class="naming-controls"><label>地区风格<select id="namingStyle"></select></label><label>对象类型<select id="namingType"></select></label><label>语言<select id="namingLanguage"><option value="both">中英对照</option><option value="zh">中文</option><option value="en">英文／拉丁字母</option></select></label><label>每批数量<select id="namingCount"><option selected>16</option><option>32</option><option>64</option></select></label></div><div class="naming-actions"><button class="primary" id="generateNames">换一批</button><button id="copyNameBatch">复制本批</button><button id="toggleNamingLibrary" aria-pressed="false">查看全部</button><span id="namingCountInfo" aria-live="polite"></span></div><div id="namingLibraryTools" class="naming-library-tools" hidden><input id="namingSearch" type="search" placeholder="搜索当前候选名称" aria-label="搜索名称"><button id="namingPrevPage">上一页</button><label>第 <input id="namingPage" type="number" min="1" value="1" aria-label="页码"> 页</label><span id="namingPageTotal"></span><button id="namingNextPage">下一页</button></div><div id="namingStatus" aria-live="polite"></div><ul id="namingResults"></ul></dialog>
 <dialog id="aboutDialog" class="reference-dialog" aria-labelledby="aboutTitle">
  <div class="dialog-header"><h2 id="aboutTitle">关于地图规划设计器</h2><button data-close="aboutDialog" aria-label="关闭关于">×</button></div>
- <div class="about-identity"><span class="brand-icon" aria-hidden="true">◈</span><div><strong>天际线Ⅱ地图规划设计器</strong><div>v0.5.0 · Windows x64 · Tauri 绿色版</div></div></div>
+ <div class="about-identity"><span class="brand-icon" aria-hidden="true">◈</span><div><strong>天际线Ⅱ地图规划设计器</strong><div>v0.5.1 · Windows x64 · Tauri 绿色版</div></div></div>
  <p>本项目采用许愿式编程。为《Cities: Skylines II》玩家提供二维地图规划、工程管理和游戏内建设参考。</p>
  <dl class="about-notices">
   <dt>独立社区项目</dt><dd>本工具由社区维护，与 Colossal Order、Paradox Interactive 无官方隶属或合作关系。</dd>

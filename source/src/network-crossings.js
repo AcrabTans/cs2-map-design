@@ -1,6 +1,6 @@
 // Crossings are derived from centreline geometry. They never alter road nodes.
 const crossingEpsilon=1e-6;
-const streetTypes=new Set(['highway','arterial','secondary','local','path']);
+const streetTypes=new Set(['highway','arterial','secondary','local-wide','local','alley','path']);
 export const roadStackLevel=f=>Number.isInteger(f.stackLevel)?f.stackLevel:f.structure==='tunnel'?-1:['elevated','bridge'].includes(f.structure)?1:0;
 export const isStreetRoad=f=>f.kind==='road'&&streetTypes.has(f.type)&&f.geometryType!=='polygon';
 export const crossingRoads=features=>features.filter(f=>f.kind==='road'&&f.type!=='bus'&&f.geometryType!=='polygon');

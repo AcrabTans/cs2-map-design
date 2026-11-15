@@ -27,6 +27,7 @@ const buildingAssetSource=(await read('src/building-assets.js')).replace(/^impor
 const model=(await read('src/model.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
 const planningSource=(await read('src/planning.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
 const masterPlanSource=(await read('src/master-plan.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
+const localBuildingRules=(await read('src/local-building-rules.js')).replace(/^export /gm,'');
 const localPlanSource=(await read('src/local-plan.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
 const networkDisplaySource=(await read('src/network-display.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
 const networkCrossingsSource=(await read('src/network-crossings.js')).replace(/^export /gm,'');
@@ -55,7 +56,7 @@ const patch=options['--patch']?JSON.parse(await readFile(path.resolve(root,optio
 const patchScript=patch?`const PROJECT_PATCH=${JSON.stringify(patch).replaceAll('<','\\u003c')};\n`:'';
 html=html.replace('<link rel="stylesheet" href="style.css">',`<style>${await read('src/style.css')}</style>`).replace('href="assets/qgis.png"',`href="${images.qgis||''}"`).replace('<script type="module" src="app.js"></script>',`<script type="module">const BASEMAPS=${JSON.stringify(images)};\n${seedScript}${projectSeedExtras}${terrainCorrectionScript}${patchScript}${buildingAssetData}
 ${tauriBridge}\n${desktopRuntime}\n${buildingAssetSource}
-${model}\n${archiveSource}\n${projectFileSource}\n${projectFolderSource}\n${planningSource}\n${masterPlanSource}\n${localPlanSource}\n${cartoExportSource}\n${networkDisplaySource}\n${networkCrossingsSource}\n${editPerformanceSource}\n${terrain}\n${carto}\n${fileStore}\n${namingSource}\n${meshoptSource}\n${cokSource}\n${extractorSource}\n${app}</script>`);
+${model}\n${archiveSource}\n${projectFileSource}\n${projectFolderSource}\n${planningSource}\n${masterPlanSource}\n${localBuildingRules}\n${localPlanSource}\n${cartoExportSource}\n${networkDisplaySource}\n${networkCrossingsSource}\n${editPerformanceSource}\n${terrain}\n${carto}\n${fileStore}\n${namingSource}\n${meshoptSource}\n${cokSource}\n${extractorSource}\n${app}</script>`);
 if(seed){const title=String(options['--title']||'优化初稿 01').replace(/[<>&"']/g,'');html=html.replace('<title>岛屿蓝图 · 天际线 II 规划台</title>',`<title>岛屿蓝图 · ${title}</title>`).replace('天际线 II <small>',`${title} <small>`).replace('REVISION 02',String(seed.proposal?.revision||'本轮建议').replace(/[<>&"']/g,''));}
 const output=path.resolve(root,options['--output']||'../index.html');
 await mkdir(path.dirname(output),{recursive:true});

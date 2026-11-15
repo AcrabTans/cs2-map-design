@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {initialProject,pointInPolygon,segmentProjection,area} from '../src/model.js';
-import {generateLocalPlan} from '../src/local-plan.js';
+import {initialProject,pointInPolygon,segmentIntervals,segmentProjection,area} from '../src/model.js';
+import {generateLocalPlan,suggestLocalUses} from '../src/local-plan.js';
+import {localAssetRole} from '../src/local-building-rules.js';
+import {buildingAssetLot} from '../src/building-assets.js';
 import {generateMasterPlan,generateScenicPlan} from '../src/master-plan.js';
 
 const width=112,step=128;
@@ -330,4 +332,107 @@ test('scenic planning composes a theme and applies district volumes before layin
  const withRoads=generateScenicPlan(project,{...terrain,theme:'valley',roadMode:'arterial'});
  assert.deepEqual(withRoads.districts,draft.districts);
  assert(withRoads.roads.some(road=>road.type==='arterial'));
+});
+
+test('repeated local generation explores different road and asset layouts without changing the requested settings',()=>{
+ const project=initialProject();
+ const points=[[1000,1000],[1800,1000],[1800,1700],[1000,1700]];
+ const district={id:'local-variants',kind:'district',points};
+ project.features=[district,...points.map((p,i)=>({kind:'road',type:'local',points:[p,points[(i+1)%4]]}))];
+ const options={terrain:{elevation,depth:dry},percentages:{'mid-res':60,commerce:25,park:15},angle:0,heightLimit:30,connectionCount:2};
+ const recentSignatures=[],plans=[];
+ for(const seed of [101,102,103]){
+  const plan=generateLocalPlan(project,district,{...options,seed,recentSignatures});
+  assert.equal(plan.repeated,false);
+  assert.equal(plan.streetAngle,0);
+  assert.equal(plan.externalConnections.length,2);
+  assert(plan.buildings.length>0&&plan.buildings.every(({feature})=>feature.assetPlacement.height<=30));
+  assert.deepEqual(Object.fromEntries(plan.distribution.map(({type,target})=>[type,target])),options.percentages);
+  recentSignatures.push(plan.signature);
+  plans.push(plan);
+ }
+ assert.equal(new Set(plans.map(plan=>JSON.stringify(plan.roads))).size,3);
+ assert.equal(new Set(plans.map(plan=>JSON.stringify(plan.buildings.map(({assetId})=>assetId)))).size,3);
+ const repeatSeed=generateLocalPlan(project,district,{...options,seed:101});
+ assert.equal(repeatSeed.signature,plans[0].signature);
+});
+
+test('campus planning limits main facilities and uses offices as repeatable research buildings',()=>{
+ const project=initialProject();
+ const district={id:'campus',kind:'district',type:'tech-university',points:[[1000,1000],[1640,1000],[1640,1490],[1000,1490]]};
+ project.features=[district,...[1030,1260,1460].map(y=>({kind:'road',type:'local',width:18,points:[[930,y],[1690,y]]}))];
+ const options={connectionCount:0,percentages:{'tech-university':44,innovation:30,pharma:10,park:16}};
+ const plan=generateLocalPlan(project,district,options);
+ const buildings=plan.buildings.map(item=>item.feature);
+ const anchors=buildings.filter(f=>f.attributes.PlanningFacility==='universities');
+ assert.equal(anchors.length,1);
+ assert(buildings.filter(f=>f.notes.includes('研发办公')).length>=3);
+ assert(buildings.every(f=>localAssetRole({code:f.assetPlacement.code,type:f.type})!=='special'));
+ const staged={...project,features:[...project.features,...anchors]};
+ const next=generateLocalPlan(staged,district,options);
+ assert(next.warnings.some(w=>w.includes('已有同类设施')));
+ assert(!next.buildings.some(({feature})=>feature.attributes.PlanningFacility==='universities'));
+ const nearby={kind:'building',type:'education',points:[[1660,1050],[1690,1050],[1690,1090],[1660,1090]],
+  attributes:{Asset:'TechnicalUniversity01'}};
+ const neighboring=generateLocalPlan({...project,features:[...project.features,nearby]},district,options);
+ assert(!neighboring.buildings.some(({feature})=>feature.attributes.PlanningFacility==='universities'));
+ for(const code of ['RadioTelescope01','LargeHadronCollider01','GeologicalResearchCenter01','Prison01','ObservationTower01'])
+  assert.equal(localAssetRole({code}),'special');
+});
+
+test('residential height bands and irregular green patches respect ground space and reserved holes',()=>{
+ const points=[[1000,1000],[1660,1000],[1690,1350],[1470,1510],[1000,1440]];
+ const hole=[[1340,1180],[1430,1180],[1430,1250],[1340,1250]];
+ const district={id:'housing',kind:'district',type:'mid-res',points,additionalParts:[hole]};
+ const project=initialProject();
+ const roads=[1040,1270,1430].map(y=>({kind:'road',type:'local',width:20,points:[[950,y],[1710,y]]}));
+ const existing=[[1090,1190],[1170,1190],[1170,1250],[1090,1250]];
+ project.features=[district,...roads,{kind:'building',geometryType:'polygon',type:'residential',points:existing}];
+ const suggested=suggestLocalUses(district,project);
+ assert(suggested.park>0);
+ assert.equal(Object.values(suggested).reduce((a,b)=>a+b,0),100);
+ const plan=generateLocalPlan(project,district,{connectionCount:0,heightLimit:28,percentages:{'mid-res':73,park:27}});
+ assert(plan.buildings.length>=10);
+ assert(plan.buildings.every(({feature})=>feature.assetPlacement.height>=11&&feature.assetPlacement.height<=28));
+ const band=plan.heightBands.find(b=>b.type==='mid-res');
+ assert(band&&band.max-band.min<=8);
+ const patches=plan.zones.filter(zone=>zone.attributes?.PlanningGreen);
+ assert(patches.some(patch=>patch.points.length>4));
+ const excluded=[hole,existing,...plan.buildings.map(({feature})=>buildingAssetLot(feature))];
+ for(const {points:ring} of patches){
+  assert(area(ring)>0);
+  for(let i=0;i<ring.length;i++){
+   const a=ring[i],b=ring[(i+1)%ring.length];
+   assert(segmentIntervals(a,b,[points]).every(({point})=>pointInPolygon(point,points)));
+   for(const exclusion of excluded){
+    assert(segmentIntervals(a,b,[exclusion]).every(({point})=>!pointInPolygon(point,exclusion)));
+    assert(exclusion.every(point=>!pointInPolygon(point,ring)));
+   }
+   for(const road of roads)assert(Math.abs(a[1]-road.points[0][1])>=12-1e-6);
+  }
+ }
+});
+
+test('local road hierarchy follows district size, frontage and access',()=>{
+ function fixture(use,width,height,options={},sideRoadsOnly=false){
+  const points=[[1000,1000],[1000+width,1000],[1000+width,1000+height],[1000,1000+height]];
+  const district={id:'road-mix',kind:'district',type:use,points},project=initialProject();
+  project.settings.editor={roadStyles:{local:{width:18},'local-wide':{width:25},alley:{width:7}}};
+  project.features=[district,...points.map((point,i)=>({kind:'road',type:i%2===1?'secondary':'local',points:[point,points[(i+1)%4]]}))
+   .filter((_,index)=>!sideRoadsOnly||index%2===1)];
+  return generateLocalPlan(project,district,{use,angle:0,unlimitedConnections:true,...options});
+ }
+ const residential=fixture('mid-res',340,300,{seed:24});
+ assert.deepEqual(new Set(residential.roads.map(r=>r.type)),new Set(['local','alley']));
+ const commercial=fixture('commerce',540,350,{seed:24});
+ assert.deepEqual(new Set(commercial.roads.map(r=>r.type)),new Set(['local','local-wide','alley']));
+ for(const road of commercial.roads)assert.equal(road.width,{'local-wide':25,local:18,alley:7}[road.type]);
+ const industrial=fixture('industry',680,400,{seed:24});
+ assert(industrial.roads.some(r=>r.type==='local-wide'));
+ assert(!industrial.roads.some(r=>r.type==='alley'||r.type==='arterial'));
+ const large=fixture('commerce',1100,850,{width:230,depth:130},true);
+ const collector=large.roads.filter(r=>r.type==='secondary');
+ assert(collector.length>0);
+ assert(collector.every(r=>r.width===28));
+ assert(collector.some(r=>r.points[1][0]===1000)&&collector.some(r=>r.points[1][0]===2100));
 });

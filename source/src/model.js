@@ -6,7 +6,9 @@ export const ROADS=[
  {id:'highway',name:'高速',color:'#13bb4b',width:40,corridor:80},
  {id:'arterial',name:'主干道',color:'#ed9d25',width:40,corridor:64},
  {id:'secondary',name:'次干道',color:'#4c99ce',width:28,corridor:44},
- {id:'local',name:'支路',color:'#7e9fa4',width:20,corridor:32},
+ {id:'local-wide',name:'四车道支路',color:'#527f8e',width:24,corridor:34,lanes:4},
+ {id:'local',name:'双车道支路',color:'#7e9fa4',width:20,corridor:32,lanes:2},
+ {id:'alley',name:'窄巷',color:'#b5a58c',width:8,corridor:12},
  {id:'path',name:'小路',color:'#ffffff',width:12,corridor:20},
  {id:'metro',name:'地铁',color:'#9450c8',width:8,corridor:16,dash:true},
  {id:'bus',name:'公交线路',color:'#2e98c0',width:4,corridor:8,dash:true}
@@ -123,7 +125,7 @@ export function interiorPoint(points){
  return best?.p||points[0];
 }
 export function districtAt(project,p){return project.features.find(f=>f.kind==='district'&&pointInPolygon(p,f.points))?.id||'';}
-export function visibleInPlanView(project,f){const mode=project.settings.planView||'detail';if(f.kind==='district')return project.settings.districtsVisible!==false;if(f.kind==='zone')return mode==='detail'||['station','depot','civic'].includes(f.type)||f.name==='生态绿地';if(f.kind==='road'&&mode==='districts'&&['local','path','metro','bus'].includes(f.type))return false;return true;}
+export function visibleInPlanView(project,f){const mode=project.settings.planView||'detail';if(f.kind==='district')return project.settings.districtsVisible!==false;if(f.kind==='zone')return mode==='detail'||['station','depot','civic'].includes(f.type)||f.name==='生态绿地';if(f.kind==='road'&&mode==='districts'&&['local-wide','local','alley','path','metro','bus'].includes(f.type))return false;return true;}
 
 // Editor v2 keeps legacy feature geometry untouched; missing metadata has defaults.
 export const GROUPS=[['area','地块 Area'],['network','路网 Network'],['building','建筑 Building'],['route','交通 Route'],['zoning','用地 Zoning'],['terrain','地形 Terrain']];
@@ -311,7 +313,7 @@ export function validateEditorProject(clean,data){
   for(const [k,v]of Object.entries(src.layers||{}))if(k in e.layers&&v.color!==undefined){if(!color(v.color))throw Error('图层颜色无效');e.layers[k].color=v.color;}
   if(!('area' in (src.groups||{}))){if(src.groups?.district===false)for(const k of ['district:large','district:small'])e.layers[k].visible=false;if(src.groups?.zone===false)e.layers.zone.visible=false;}
   const oldRoadColors={rail:['#806c88'],waterway:['#288fa9'],highway:['#c17c45','#24934c'],arterial:['#ce9b45','#f8c454'],secondary:['#6b9685','#e8ad49'],local:['#6d99b1','#f5f8fa'],path:['#a2ad85','#9caba9'],metro:['#c67d97','#8b50c7'],bus:['#4eabb1']};
-  for(const r of ROADS){const v=src.roadStyles?.[r.id];if(v){if(!color(v.color)||!Number.isFinite(v.width)||v.width<1||v.width>1000||!Number.isFinite(v.corridor)||v.corridor<v.width||v.corridor>2000)throw Error('路网默认样式无效');const base=src.networkStyleVersion!==2&&oldRoadColors[r.id].includes(v.color.toLowerCase())?r.color:v.color;e.roadStyles[r.id]={...roadStyleColors(base),width:v.width,corridor:v.corridor};for(const key of ['elevatedColor','tunnelColor'])if(v[key]!==undefined){if(!color(v[key]))throw Error('结构配色无效');e.roadStyles[r.id][key]=v[key];}}}
+  for(const r of ROADS){const v=src.roadStyles?.[r.id];if(v){if(!color(v.color)||!Number.isFinite(v.width)||v.width<1||v.width>1000||!Number.isFinite(v.corridor)||v.corridor<v.width||v.corridor>2000)throw Error('路网默认样式无效');const base=src.networkStyleVersion!==2&&oldRoadColors[r.id]?.includes(v.color.toLowerCase())?r.color:v.color;e.roadStyles[r.id]={...roadStyleColors(base),width:v.width,corridor:v.corridor};for(const key of ['elevatedColor','tunnelColor'])if(v[key]!==undefined){if(!color(v[key]))throw Error('结构配色无效');e.roadStyles[r.id][key]=v[key];}}}
   if(src.widthMode!==undefined){if(!['actual','overview'].includes(src.widthMode))throw Error('道路显示模式无效');e.widthMode=src.widthMode;}
   for(const [key,min,max]of [['railSegment',2,200],['routeWidth',.25,6]])if(src[key]!==undefined){if(!Number.isFinite(src[key])||src[key]<min||src[key]>max)throw Error('路网显示尺寸无效');e[key]=src[key];}
   if(src.networkStyleVersion!==2)clean.settings.corridors=false;

@@ -1443,8 +1443,9 @@ function renderMasterPlan(){
     stroke:candidate?'#aa561d':'#17764a','stroke-width':2/scale},host);
   }
   for(const road of preview.roads)node('path',{d:pathData(road.points),fill:'none',
-   stroke:road.type==='highway'?'#17764a':road.type==='arterial'?'#aa561d':'#276875',
-   'stroke-width':({highway:5,arterial:4}[road.type]??2.5)/scale,
+   stroke:full?(road.type==='highway'?'#17764a':road.type==='arterial'?'#aa561d':'#276875'):roadInfo(road.type).color,
+   'stroke-width':full?({highway:5,arterial:4}[road.type]??2.5)/scale:Math.max(1.3/scale,road.width),
+   'data-plan-road':road.type,
    'stroke-dasharray':road.structure==='elevated'?`${8/scale} ${5/scale}`:'none',
    'stroke-linecap':'round','stroke-linejoin':'round'},host);
   for(const point of preview.externalConnections||[])node('circle',{cx:point[0],cy:point[1],r:4.5/scale,
@@ -2027,13 +2028,28 @@ $('masterPlanGenerate').onclick=async()=>{
    const connectionMode=$('localPlanConnectionMode').value,manual=connectionMode==='manual';
    if(!angle.validity.valid||!height.validity.valid)throw Error('请检查道路方向和建筑限高。');
    if(manual&&!connections.validity.valid)throw Error('请填写 0–'+maxManualLocalConnections+' 的整数作为目标接点数。');
+   if(!district)throw Error('请先选择一个片区。');
    const localProject={...project,features:project.features.filter(f=>!workspaceCorridor(f))};
-   plan=generateLocalPlan(localProject,district,{connectionCount:manual?Number(connections.value):null,unlimitedConnections:connectionMode==='unlimited',terrain:session.terrain.inputs,percentages:readPlanningUses('localPlanUses'),
-    angle:angle.value===''?null:Number(angle.value),heightLimit:height.value?Number(height.value):Infinity});
+   const params={connectionCount:manual?Number(connections.value):null,unlimitedConnections:connectionMode==='unlimited',
+    percentages:readPlanningUses('localPlanUses'),angle:angle.value===''?null:Number(angle.value),
+    heightLimit:height.value?Number(height.value):Infinity};
+   const key=JSON.stringify([revision,district.id,params]);
+   if(session.variants?.key!==key)session.variants={key,recent:[],number:0};
+   const variants=session.variants;
+   const seed=crypto.getRandomValues(new Uint32Array(1))[0];
+   plan=generateLocalPlan(localProject,district,{...params,terrain:session.terrain.inputs,seed,recentSignatures:variants.recent});
+   variants.number++;
+   variants.recent=[plan.signature,...variants.recent.filter(signature=>signature!==plan.signature)].slice(0,8);
+   if(plan.repeated)plan.warnings.push('可用临街空间或接入条件有限，这次方案与近期草案相同。');
    const {coverage}=plan,total=Object.values(coverage).reduce((sum,n)=>sum+n,0);
    const pct=key=>Math.round(coverage[key]/(total||1)*100)+'%';
-   status=`已生成 ${plan.roads.length} 段支路、${plan.zones.length} 个地块、${plan.buildings.length} 栋资产、${plan.trees.length} 处建议植树点。`;
+   status=`草案 ${variants.number} · ${plan.roads.length} 段内部道路、${plan.zones.length} 个地块、${plan.buildings.length} 栋资产、${plan.trees.length} 处建议植树点。`;
    if(plan.internalBuildings)status+=' 其中 '+plan.internalBuildings+' 栋沿新增内部道路布置。';
+   if(plan.roads.length){
+    const counts=new Map();
+    for(const {type} of plan.roads)counts.set(type,(counts.get(type)||0)+1);
+    status+='\n路型 · '+ROADS.filter(road=>counts.has(road.id)).map(road=>road.name+' '+counts.get(road.id)+' 段').join('、')+'。';
+   }
    const direction=angle.value!==''?'手动方向 '+angle.value+'°':plan.northOffset?
     '自动轴网偏离南北 '+Math.round(plan.northOffset)+'°':'自动对齐南北／东西';
    status+='\n'+direction+(plan.guideName&&angle.value===''?'，兼顾外围道路':'')+'。'+
@@ -2043,6 +2059,10 @@ $('masterPlanGenerate').onclick=async()=>{
      (plan.maximumConnections===plan.recommendedConnections?'':'–'+plan.maximumConnections)+' 处）。');
 
    status+='\n片区陆地估算 · 资产用地 '+pct('building')+'、路面 '+pct('road')+'、绿化 '+pct('green')+'、现状及预留 '+pct('reserved')+'、其余 '+pct('remaining')+'。';
+   const greenCount=plan.zones.filter(zone=>zone.attributes?.PlanningGreen).length;
+   if(greenCount)status+=' 补充绿地 '+greenCount+' 处。';
+   if(plan.heightBands.length)status+='\n主要建筑高度 · '+plan.heightBands.map(({type,min,max})=>
+    zoneInfo(type)[1]+' '+(min===max?min:`${min}–${max}`)+' 米').join('、')+'。';
    status+='\n用途面积（目标 → 草案）\n'+plan.distribution.map(({type,target,percent})=>
     zoneInfo(type)[1]+' '+target+'% → '+percent+'%').join('、')+'。';
   }else{
@@ -2114,9 +2134,11 @@ $('masterPlanApply').onclick=()=>{
  }
  try{
   const additions=preview.plan.roads.map((road,index)=>{
-   const {width,corridor}=project.settings.editor.roadStyles[road.type];
-   return {...road,id:crypto.randomUUID(),kind:'road',name:`${preview.districtId?'街坊支路':'总规骨干路'} ${index+1}`,
-    notes:preview.districtId?'局部规划草案':'地形总规草案',source:'manual',width,corridor,structure:road.structure||'ground',
+   const style=project.settings.editor.roadStyles[road.type],width=road.width??style.width;
+   const {name,lanes}=roadInfo(road.type);
+   return {...road,id:crypto.randomUUID(),kind:'road',name:`${preview.districtId?name:'总规骨干路'} ${index+1}`,
+    notes:preview.districtId?'局部规划草案'+(road.type==='alley'?' · 双向通行，无中心线':''):'地形总规草案',source:'manual',width,corridor:Math.max(width,style.corridor),structure:road.structure||'ground',
+    ...(lanes?{attributes:{Lane:lanes,Direction:'Both'}}:{}),
     ...(preview.districtId?{districtId:preview.districtId}:{})};
   });
   for(const [index,{points}]of (preview.plan.interchanges||[]).entries()){

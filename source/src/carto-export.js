@@ -19,7 +19,7 @@ export function roadFootprint(points,width){
 }
 const plannerFields=[['P_Ver','number'],['P_Id','text'],['P_Kind','text'],['P_Type','text'],['P_Level','text'],['P_Parent','text'],['P_Dist','text'],['P_Color','text'],['P_Struct','text'],['P_Stack','number']];
 function planAttributes(f){return {P_Ver:1,P_Id:f.id,P_Kind:f.kind,P_Type:f.type||'',P_Level:f.level||'',P_Parent:f.parentId||'',P_Dist:f.districtId||'',P_Color:f.color||'',P_Struct:f.structure||'',P_Stack:f.kind==='road'?(f.stackLevel??null):null};}
-const networkCategories={rail:'Train',metro:'Subway',waterway:'Waterway',highway:'Highway',arterial:'Large',secondary:'Medium',local:'Small',path:'Pathway'};
+const networkCategories={rail:'Train',metro:'Subway',waterway:'Waterway',highway:'Highway',arterial:'Large',secondary:'Medium','local-wide':'LocalWide',local:'Small',alley:'Alley',path:'Pathway'};
 const buildingCategories={education:'Education',residential:'Residential',hospital:'Health',police:'Police',fire:'Fire',municipal:'Utility',industry:'Industrial',commercial:'Commercial',sports:'Sports',landscape:'Decoration',other:'Other'};
 function zoningAttributes(f){const kind=blockClass(f);return {Object:'Zone',Zoning:kind==='residential'?'Residential':kind==='commercial'?'Commercial':kind==='office'?'Office':kind==='industrial'?'Industrial':kind==='mixed'?'Residential Commercial':'None',Density:/^high/.test(f.type)?'High':/^mid/.test(f.type)?'Medium':'Low'};}
 export function cartoExportRecords(project){

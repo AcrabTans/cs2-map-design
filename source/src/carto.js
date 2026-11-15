@@ -44,7 +44,7 @@ export function readCartoShp(buffer){
 }
 export function cartoRoadType(a){
  const c=String(a.Category||'').toLowerCase(),asset=String(a.Asset||'').toLowerCase(),o=String(a.Object||'').toLowerCase();
- if(/subway|metro/.test(c+asset))return 'metro';if(/train|rail/.test(c)||o==='track')return 'rail';if(/water|shipping/.test(c+o))return 'waterway';if(/highway|motorway/.test(c))return 'highway';if(/path|pedestrian/.test(c+o))return 'path';if(/large|arterial/.test(c))return 'arterial';if(/medium|secondary/.test(c))return 'secondary';return 'local';
+ if(/subway|metro/.test(c+asset))return 'metro';if(/train|rail/.test(c)||o==='track')return 'rail';if(/water|shipping/.test(c+o))return 'waterway';if(/highway|motorway/.test(c))return 'highway';if(/path|pedestrian/.test(c+o))return 'path';if(c==='localwide')return 'local-wide';if(c==='alley'||/^alley\s*\d/.test(asset))return 'alley';if(/large|arterial/.test(c))return 'arterial';if(/medium|secondary/.test(c))return 'secondary';return 'local';
 }
 export function cartoBuildingType(a){
  const text=[a.Category,a.Object,a.Zoning,a.Zone].join(' ').toLowerCase();
