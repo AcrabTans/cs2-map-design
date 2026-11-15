@@ -1,3 +1,5 @@
+import {geometryParts,segmentProjection} from './model.js';
+
 // A screen gesture paints at most once per animation frame. Release flushes the
 // final frame before the expensive, authoritative geometry pass.
 export function createEditScheduler(paint,{frame=requestAnimationFrame,cancelFrame=cancelAnimationFrame}={}){
@@ -19,6 +21,36 @@ export function createSnapIndex(features,{visible=()=>true,exclude=null,cellSize
    const d=Math.hypot(p[0]-point[0],p[1]-point[1]);if(d<best){best=d;result=p;}
   }
   return result?[...result]:null;
+ }};
+}
+
+export function createRoadSegmentIndex(roads,cellSize=256){
+ const cells=new Map();
+ for(const feature of roads)for(const [partIndex,points]of geometryParts(feature).entries()){
+  for(let index=0;index<points.length-1;index++){
+   const a=points[index],b=points[index+1],segment={feature,partIndex,index,a,b};
+   for(let x=Math.floor(Math.min(a[0],b[0])/cellSize);x<=Math.floor(Math.max(a[0],b[0])/cellSize);x++){
+    for(let y=Math.floor(Math.min(a[1],b[1])/cellSize);y<=Math.floor(Math.max(a[1],b[1])/cellSize);y++){
+     const key=x+':'+y;
+     if(!cells.has(key))cells.set(key,[]);
+     cells.get(key).push(segment);
+    }
+   }
+  }
+ }
+ return {nearest(point,radius){
+  const nearby=new Set();
+  for(let x=Math.floor((point[0]-radius)/cellSize);x<=Math.floor((point[0]+radius)/cellSize);x++){
+   for(let y=Math.floor((point[1]-radius)/cellSize);y<=Math.floor((point[1]+radius)/cellSize);y++){
+    for(const segment of cells.get(x+':'+y)||[])nearby.add(segment);
+   }
+  }
+  let best=null,limit=radius;
+  for(const {feature,partIndex,index,a,b}of nearby){
+   const hit=segmentProjection(point,a,b);
+   if(hit.distance<limit){best={...hit,feature,partIndex,index};limit=hit.distance;}
+  }
+  return best;
  }};
 }
 

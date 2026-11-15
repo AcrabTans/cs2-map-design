@@ -1,5 +1,14 @@
 const zipTextEncoder=new TextEncoder();
-export function crc32(bytes){let crc=0xffffffff;for(const n of bytes){crc^=n;for(let i=0;i<8;i++)crc=crc&1?(crc>>>1)^0xedb88320:crc>>>1;}return (crc^0xffffffff)>>>0;}
+const zipCrcTable=Uint32Array.from({length:256},(_,byte)=>{
+ let crc=byte;
+ for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);
+ return crc;
+});
+export function crc32(bytes){
+ let crc=0xffffffff;
+ for(let i=0;i<bytes.length;i++)crc=(crc>>>8)^zipCrcTable[(crc^bytes[i])&255];
+ return (crc^0xffffffff)>>>0;
+}
 export function joinBytes(parts){const out=new Uint8Array(parts.reduce((n,p)=>n+p.length,0));let at=0;for(const p of parts){out.set(p,at);at+=p.length;}return out;}
 export function createZip(entries){
  const local=[],central=[];let offset=0;

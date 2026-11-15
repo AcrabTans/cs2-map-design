@@ -28,7 +28,52 @@ export const roadInfo=id=>ROADS.find(x=>x.id===id)||ROADS[0];
 export const distance=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
 export const length=points=>points.slice(1).reduce((s,p,i)=>s+distance(p,points[i]),0);
 export const area=points=>Math.abs(points.reduce((s,p,i)=>{const q=points[(i+1)%points.length];return s+p[0]*q[1]-q[0]*p[1]},0))/2;
-export function nearestSegment(points,p,closed=false){let best={distance:Infinity,index:-1,point:null};const count=closed?points.length:points.length-1;for(let i=0;i<count;i++){const a=points[i],b=points[(i+1)%points.length],dx=b[0]-a[0],dy=b[1]-a[1],den=dx*dx+dy*dy;const t=den?Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/den)):0;const q=[a[0]+t*dx,a[1]+t*dy],d=distance(q,p);if(d<best.distance)best={distance:d,index:i,point:q}}return best}
+export function segmentProjection(point,a,b){
+ const dx=b[0]-a[0],dy=b[1]-a[1],den=dx*dx+dy*dy;
+ const t=den?Math.max(0,Math.min(1,((point[0]-a[0])*dx+(point[1]-a[1])*dy)/den)):0;
+ const projected=[a[0]+t*dx,a[1]+t*dy];
+ return {t,point:projected,distance:distance(projected,point)};
+}
+export function nearestSegment(points,p,closed=false){
+ let best={distance:Infinity,index:-1,point:null};
+ for(let index=0;index<points.length-(closed?0:1);index++){
+  const hit=segmentProjection(p,points[index],points[(index+1)%points.length]);
+  if(hit.distance<best.distance)best={...hit,index};
+ }
+ return best;
+}
+export const geometryParts=feature=>[feature.points,...(feature.additionalParts||[])];
+export function nearestGeometryEdge(feature,point){
+ let best={distance:Infinity};
+ for(const [partIndex,points]of geometryParts(feature).entries()){
+  const hit=nearestSegment(points,point,isPolygonFeature(feature));
+  if(hit.distance<best.distance)best={...hit,partIndex};
+ }
+ return best;
+}
+export function insertGeometryNodes(feature,hits){
+ const parts=geometryParts(feature);
+ const byPart=new Map();
+ for(const hit of hits){
+  if(hit.t<=1e-8||hit.t>=1-1e-8)continue;
+  if(!byPart.has(hit.partIndex))byPart.set(hit.partIndex,[]);
+  byPart.get(hit.partIndex).push(hit);
+ }
+ for(const [partIndex,additions]of byPart){
+  const points=parts[partIndex].slice();
+  const ordered=additions.sort((a,b)=>b.index-a.index||b.t-a.t);
+  let previous;
+  for(const hit of ordered){
+   if(previous&&hit.index===previous.index&&Math.abs(hit.t-previous.t)<1e-8)continue;
+   if(points.length>=5000)throw Error('对象每段最多支持 5000 个节点');
+   points.splice(hit.index+1,0,hit.point);
+   previous=hit;
+  }
+  parts[partIndex]=points;
+ }
+ if(!byPart.size)return feature;
+ return {...feature,points:parts[0],...(feature.additionalParts?{additionalParts:parts.slice(1)}:{})};
+}
 export function initialProject(){return {version:2,mapSize:SIZE,title:'地图工程',assetPacks:[],basemaps:[],rasters:[],features:[],notes:'',settings:{base:'none',baseOpacity:100,zoneOpacity:32,grid:false,snap:true,zonesVisible:true,zonesLocked:false,notesVisible:true,corridors:true,districtsVisible:true,planView:'detail',protectExistingZones:true,showNewZones:true,showNewRoads:true,layers:Object.fromEntries(ROADS.map(r=>[r.id,{visible:true,locked:false}]))}}}
 export function validateProject(data){
  if(!data||![1,2].includes(data.version)||![13000,SIZE].includes(data.mapSize)||!Array.isArray(data.features)||data.features.length>20000)throw Error('不是有效的地图规划工程');
@@ -164,20 +209,28 @@ export function labelsVisibleInEditor(p,f){
  return p.settings.notesVisible!==false&&visibleInEditor(p,f)&&e.groupLabels?.[groupForLayer(key)]!==false&&e.layers[key]?.labelsVisible!==false;
 }
 export function pointInOrOn(p,poly){return pointInPolygon(p,poly)||nearestSegment(poly,p,true).distance<1e-5;}
-// Check each segment interval split by boundary intersections. Testing only nodes
-// would let a line cross outside a concave interchange reservation.
+// Split a segment at ring crossings so concave outlines and holes are handled.
+export function segmentIntervals(a,b,rings){
+ const cross=(u,v)=>u[0]*v[1]-u[1]*v[0];
+ const r=[b[0]-a[0],b[1]-a[1]],ts=[0,1];
+ for(const polygon of rings)for(let j=0;j<polygon.length;j++){
+  const c=polygon[j],d=polygon[(j+1)%polygon.length],s=[d[0]-c[0],d[1]-c[1]],q=[c[0]-a[0],c[1]-a[1]],den=cross(r,s);
+  if(Math.abs(den)>1e-9){const t=cross(q,s)/den,u=cross(q,r)/den;if(t>0&&t<1&&u>=0&&u<=1)ts.push(t);}
+  else if(Math.abs(cross(q,r))<1e-6){const rr=r[0]*r[0]+r[1]*r[1];if(rr)for(const v of [c,d]){const t=((v[0]-a[0])*r[0]+(v[1]-a[1])*r[1])/rr;if(t>0&&t<1)ts.push(t);}}
+ }
+ ts.sort((x,y)=>x-y);
+ const intervals=[];
+ for(let j=1;j<ts.length;j++){
+  if(ts[j]===ts[j-1])continue;
+  const t=(ts[j]+ts[j-1])/2;
+  intervals.push({point:[a[0]+r[0]*t,a[1]+r[1]*t],fraction:ts[j]-ts[j-1]});
+ }
+ return intervals;
+}
 export function containedGeometry(points,polygon,closed=false){
  if(!points.every(p=>pointInOrOn(p,polygon)))return false;
- const cross=(a,b)=>a[0]*b[1]-a[1]*b[0];
  for(let k=0;k<points.length-(closed?0:1);k++){
-  const a=points[k],b=points[(k+1)%points.length],r=[b[0]-a[0],b[1]-a[1]],ts=[0,1];
-  for(let j=0;j<polygon.length;j++){
-   const c=polygon[j],d=polygon[(j+1)%polygon.length],s=[d[0]-c[0],d[1]-c[1]],q=[c[0]-a[0],c[1]-a[1]],den=cross(r,s);
-   if(Math.abs(den)>1e-9){const t=cross(q,s)/den,u=cross(q,r)/den;if(t>0&&t<1&&u>=0&&u<=1)ts.push(t);}
-   else if(Math.abs(cross(q,r))<1e-6){const rr=r[0]*r[0]+r[1]*r[1];if(rr)for(const v of [c,d]){const t=((v[0]-a[0])*r[0]+(v[1]-a[1])*r[1])/rr;if(t>0&&t<1)ts.push(t);}}
-  }
-  ts.sort((a,b)=>a-b);
-  for(let j=1;j<ts.length;j++){const t=(ts[j]+ts[j-1])/2;if(!pointInOrOn([a[0]+r[0]*t,a[1]+r[1]*t],polygon))return false;}
+  if(segmentIntervals(points[k],points[(k+1)%points.length],[polygon]).some(({point})=>!pointInOrOn(point,polygon)))return false;
  }
  return true;
 }

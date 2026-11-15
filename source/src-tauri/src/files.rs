@@ -94,7 +94,7 @@ pub async fn pick_files(kind: String, grants: State<'_, FileGrants>) -> Result<O
         } else if cok {
             dialog().add_filter("第三方建筑资产包", &["cok"]).pick_files()
         } else {
-            dialog().add_filter("地图工程", &["cs2map", "json"]).pick_file().map(|p| vec![p])
+            dialog().add_filter("地图工程", &["cs2map", "cs2plan", "json"]).pick_file().map(|p| vec![p])
         }
     }).await.map_err(|e| e.to_string())?;
     selected.map(|paths| paths.into_iter().map(|p| {
@@ -114,7 +114,7 @@ pub async fn pick_save(name: String, project: bool, grants: State<'_, FileGrants
     let name = Path::new(&name).file_name().unwrap_or_default().to_string_lossy().into_owned();
     let selected = tauri::async_runtime::spawn_blocking(move || {
         let mut picker = dialog().set_file_name(&name);
-        if project { picker = picker.add_filter("地图工程", &["cs2map"]); }
+        if project { picker = picker.add_filter("地图工程", &["cs2map", "cs2plan"]); }
         picker.save_file()
     }).await.map_err(|e| e.to_string())?;
     selected.map(|p| {

@@ -13,7 +13,7 @@ function render(roads){
  const node=(tag,attrs={},parent)=>{const n={tag,attrs:{...attrs},children:[],setAttribute(k,v){this.attrs[k]=v;}};parent?.children.push(n);return n;};
  const roots=Object.fromEntries(['roadShapes','networkMasks','noteShapes','routeShapes','corridorShapes'].map(id=>[id,node('g')]));
  const pathData=ps=>ps.map((p,i)=>(i?'L':'M')+p.join(',')).join(' ');
- const context={node,$:id=>roots[id],project,view:{scale:1},fitScale:1,selected:null,networkJunctions:[],renderCrossingCache:createCrossingCache(buildNetworkCrossings),networkMaskBounds:{x:0,y:0,width:14336,height:14336},SIZE:14336,networkDisplay,roadStackLevel,buildNetworkCrossings,junctionSectors,roadFlatEnds,pathData,featurePath:f=>pathData(f.points),labelsVisibleInEditor:()=>false};
+ const context={node,mapElement:id=>roots[id],project,view:{scale:1},fitScale:1,selected:null,networkJunctions:[],renderCrossingCache:createCrossingCache(buildNetworkCrossings),networkMaskBounds:{x:0,y:0,width:14336,height:14336},SIZE:14336,networkDisplay,roadStackLevel,buildNetworkCrossings,junctionSectors,roadFlatEnds,pathData,featurePath:f=>pathData(f.points),labelsVisibleInEditor:()=>false};
  vm.createContext(context);vm.runInContext(source,context);context.renderRoadNetwork(roads);
  const flatten=n=>[n,...n.children.flatMap(flatten)];return flatten(roots.roadShapes);
 }

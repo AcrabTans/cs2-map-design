@@ -71,8 +71,11 @@ export function writeCartoDbf(records,schema,warnings=[]){
  const truncated=new Set();records.forEach((r,i)=>{let at=header+i*rowSize;b[at++]=32;for(const f of fields){const value=r.attributes[f.name];if(value!==undefined&&value!==null){let text=f.type==='N'?Number(value).toFixed(f.decimals):String(value);if(f.type==='N'&&(!Number.isFinite(Number(value))||text.length>f.width))throw Error('数值超出 Shapefile 字段范围：'+f.name);const data=bytePrefix(text,f.width);if(data.length<cartoExportEncoder.encode(text).length)truncated.add(f.name);b.set(data,at+(f.type==='N'?f.width-data.length:0));}at+=f.width;}});b[b.length-1]=26;
  if(truncated.size)warnings.push('DBF 文字限长，已截短字段：'+[...truncated].join('、')+'；完整文字保留在工程文件中');return {dbf:b,fieldMap};
 }
-export function exportCarto(project,{terrainFiles=new Map(),includeTerrain=false}={}){
- const {records,frame,warnings}=cartoExportRecords(project),files=[],counts={},fieldMaps={};
+export function exportCarto(project,options){
+ return packCartoRecords(cartoExportRecords(project),options);
+}
+export function packCartoRecords({records,frame,warnings:previewWarnings},{terrainFiles=new Map(),includeTerrain=false}={}){
+ const warnings=[...previewWarnings],files=[],counts={},fieldMaps={};
  for(const [name,type,kind]of CARTO_EXPORT_LAYERS){const rows=records[name],schema=kind==='poi'?[['Name','名称','text'],['Addr_dist','区','text'],['Addr_strt','街道','text'],['Addr_nmbr','门牌','number'],['Category','分类','text'],['Object','对象','text']]:CARTO_FIELDS[kind],shape=writeShapefile(rows,type),{dbf,fieldMap}=writeCartoDbf(rows,schema,warnings);counts[name]=rows.length;fieldMaps[name]=fieldMap;
   for(const [ext,data]of Object.entries({...shape,dbf,prj:cartoPrj,cpg:'UTF-8'}))files.push({name:'Shapefile/'+name+'.'+ext,data});
  }

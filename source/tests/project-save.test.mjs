@@ -15,3 +15,18 @@ test('save as selects another target and cancellation leaves the current writer 
  await assert.rejects(chooseProjectSaveTarget(writer,{asNew:true,pick:async()=>{throw new Error('cancelled');}}));assert.equal(writer.handle,old);
  await assert.rejects(chooseProjectSaveTarget(new ProjectFileWriter()),/Chrome/);
 });
+
+test('folder save checks conflicts before staging and again before committing',async()=>{
+ const handle=fileHandle('map.cs2map'),writer=new ProjectFileWriter();
+ writer.attach(handle,new Uint8Array());
+ let staged=0;
+ const changeDisk=async()=>{const file=await handle.createWritable();await file.write(new Uint8Array([9]));await file.close();};
+ await assert.rejects(writer.save(async()=>{
+  staged++;
+  await changeDisk();
+  return new Uint8Array([1]);
+ }),/外部修改/);
+ assert.deepEqual(new Uint8Array(await (await handle.getFile()).arrayBuffer()),new Uint8Array([9]));
+ await assert.rejects(writer.save(async()=>{staged++;return new Uint8Array([2]);}),/外部修改/);
+ assert.equal(staged,1);
+});

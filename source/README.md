@@ -1,4 +1,4 @@
-# v0.4.0 构建
+# v0.5.0 构建
 
 在本目录执行 `npm test` 和 `npm run build`，然后执行 `cargo build --locked --release --manifest-path src-tauri/Cargo.toml`。Windows 构建需要 Rust 与对应的 C++ 工具链。常规 MSVC 构建可使用 Visual Studio Build Tools。GNU 构建需提供适配的 MinGW 编译器和 windres，并指定 `--target x86_64-pc-windows-gnu`。
 

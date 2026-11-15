@@ -54,6 +54,23 @@ export function cartoRouteType(a){const t=String(a.Transport||a.Category||a.Rout
 function zoningType(a){const z=String(a.Zoning||''),high=/high/i.test(a.Density||a.Name||''),medium=/medium/i.test(a.Density||a.Name||'');return /residential/i.test(z)&&/commercial/i.test(z)?(high?'high-mix':'mid-mix'):/residential/i.test(z)?(high?'high-res':medium?'mid-res':'villa'):/industrial/i.test(z)?'industry':/office/i.test(z)?'office':/commercial/i.test(z)?'commerce':'future';}
 const cartoHash=s=>{let n=2166136261;for(let i=0;i<s.length;i++)n=Math.imul(n^s.charCodeAt(i),16777619);return (n>>>0).toString(36);};
 const signature=a=>JSON.stringify(Object.keys(a).sort().map(k=>[k,a[k]]));
+const networkPair=['Network_Centerline','Network_Boundary'];
+const buildingPair=['Building_Boundary','POI_Location'];
+
+function matchCartoPoi(attributes,point,buildings){
+ if(attributes.P_Kind==='note')return null;
+ const matches=buildings.filter(f=>!f.poi&&pointInPolygon(point,f.points)&&
+  !f.additionalParts?.some(ring=>pointInPolygon(point,ring)));
+ return matches.find(f=>attributes.P_Ver===1&&f.attributes?.P_Id===attributes.P_Id)||
+  matches.find(f=>f.name===attributes.Name)||(matches.length===1?matches[0]:null);
+}
+
+function pairCartoPoi(building,point,attributes){
+ building.poi=point;
+ building.poiAttributes=attributes;
+ building.carto.layers.push('POI_Location');
+}
+
 const inside=p=>p[0]>=0&&p[1]>=0&&p[0]<=SIZE&&p[1]<=SIZE;
 const boundPoint=p=>p.map(v=>Math.min(SIZE,Math.max(0,v)));
 const equal=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1])<1e-6;
@@ -119,7 +136,7 @@ export async function inspectCartoFolder(files,{existingRasters=[]}={}){
  for(const list of boundaries.values())for(const row of list){const f=create(row,'Network_Boundary','road',cartoRoadType(row.attributes),row.parts[0]);roadProps(row,f);f.geometryType='polygon';if(row.parts.length>1)f.additionalParts=row.parts.slice(1);features.push(f);}
  const buildings=[];
  for(const row of byLayer.get('Building_Boundary')||[]){const f=create(row,'Building_Boundary','building',cartoBuildingType(row.attributes),row.parts[0]);f.geometryType='polygon';if(row.parts.length>1)f.additionalParts=row.parts.slice(1);buildings.push(f);features.push(f);}
- for(const row of byLayer.get('POI_Location')||[]){for(let i=0;i<row.parts.length;i++){const p=row.parts[i][0],matches=row.attributes.P_Kind==='note'?[]:buildings.filter(f=>!f.poi&&pointInPolygon(p,f.points)&&(!f.additionalParts||!f.additionalParts.some(ring=>pointInPolygon(p,ring))));const paired=matches.find(f=>row.attributes.P_Ver===1&&f.attributes.P_Id===row.attributes.P_Id)||matches.find(f=>f.name===row.attributes.Name)|| (matches.length===1?matches[0]:null);if(paired){paired.poi=p;paired.poiAttributes=row.attributes;paired.carto.layers.push('POI_Location');pairedPoi++;}else{const f=create(row,'POI_Location','building',cartoBuildingType(row.attributes),[p],i?'-part'+i:'');f.geometryType='point';f.poi=p;features.push(f);}}}
+ for(const row of byLayer.get('POI_Location')||[]){for(let i=0;i<row.parts.length;i++){const p=row.parts[i][0],paired=matchCartoPoi(row.attributes,p,buildings);if(paired){pairCartoPoi(paired,p,row.attributes);pairedPoi++;}else{const f=create(row,'POI_Location','building',cartoBuildingType(row.attributes),[p],i?'-part'+i:'');f.geometryType='point';f.poi=p;features.push(f);}}}
  for(const row of byLayer.get('Route_Centerline')||[])row.parts.forEach((ps,i)=>{if(ps.length<2)return;const f=create(row,'Route_Centerline','route',cartoRouteType(row.attributes),ps,i?'-part'+i:'');if(/^#[0-9a-f]{6}$/i.test(row.attributes.Color||''))f.color=row.attributes.Color;features.push(f);});
  for(const row of byLayer.get('Zoning_Boundary')||[]){const f=create(row,'Zoning_Boundary','zone',zoningType(row.attributes),row.parts[0]);if(row.parts.length>1)f.additionalParts=row.parts.slice(1);features.push(f);}
  const planIds=new Map();
@@ -139,12 +156,83 @@ export async function inspectCartoFolder(files,{existingRasters=[]}={}){
  if(all.some(f=>/\.geojson$/i.test(f.name)))warnings.push('本次按 Shapefile 导入；同名 GeoJSON 不重复导入');if(all.some(f=>/\.(qml|sld)$/i.test(f.name)))warnings.push('Styles 样式文件已识别，路网使用规划器配色');
  return {dataset,frame,crs,features,rasters:rasterPreviews,table,warnings,pairedOutlines,pairedPoi,sourceLayers:[...layers.keys()],fileCount:all.length,counts:Object.fromEntries([...new Set(features.map(layerKey))].map(key=>[key,features.filter(f=>layerKey(f)===key).length]))};
 }
+// Older projects store both sources on one feature. Keep the untouched source
+// when only one layer is refreshed, then match it against the new source.
+function keepCartoSource(feature,layer){
+ const [primary]=feature.carto.layers;
+ feature.carto.layers=[layer];
+ if(layer===primary){
+  if(layer==='Network_Centerline'){
+   delete feature.outlineParts;delete feature.outlineAttributes;delete feature.outlineDetached;
+  }else{
+   delete feature.poi;delete feature.poiAttributes;
+  }
+  return feature;
+ }
+ const {carto,notes,type,source}=feature;
+ const attributes=(layer==='Network_Boundary'?feature.outlineAttributes:feature.poiAttributes)||feature.attributes||{};
+ const id=feature.id+'-'+layer;
+ const name=String(attributes.Name||attributes.Asset||feature.name).slice(0,300);
+ if(layer==='POI_Location'){
+  if(!feature.poi)return null;
+  return {id,kind:'building',type:cartoBuildingType(attributes),name,notes:'',points:[feature.poi],
+   geometryType:'point',poi:feature.poi,attributes,source,carto};
+ }
+ if(!feature.outlineParts?.length)return null;
+ const [points,...additionalParts]=feature.outlineParts;
+ return {id,kind:'road',type,name,notes,points,additionalParts,geometryType:'polygon',
+  width:feature.width,corridor:feature.corridor,structure:feature.structure,attributes,source,carto};
+}
+
+function repairCartoPairs(features,dataset,sourceLayers){
+ const partial=([a,b])=>sourceLayers.has(a)!==sourceLayers.has(b);
+ const partialNetwork=partial(networkPair),partialBuildings=partial(buildingPair);
+ if(!partialNetwork&&!partialBuildings)return features;
+ const sameMap=features.filter(f=>f.carto?.dataset===dataset);
+ const alone=layer=>sameMap.filter(f=>f.carto.layers.length===1&&f.carto.layers[0]===layer);
+ const consumed=new Set();
+ if(partialNetwork){
+  const outlines=new Map();
+  for(const f of alone('Network_Boundary')){
+   const key=signature(f.attributes||{});
+   if(!outlines.has(key))outlines.set(key,[]);
+   outlines.get(key).push(f);
+  }
+  for(const f of alone('Network_Centerline')){
+   if(/-part[1-9][0-9]*$/.test(f.id))continue;
+   const outline=outlines.get(signature(f.attributes||{}))?.shift();
+   if(!outline)continue;
+   f.outlineParts=[outline.points,...(outline.additionalParts||[])];
+   f.outlineAttributes=outline.attributes;
+   f.carto.layers.push('Network_Boundary');
+   consumed.add(outline);
+  }
+ }
+ if(partialBuildings){
+  const buildings=alone('Building_Boundary');
+  for(const f of alone('POI_Location')){
+   if(f.kind!=='building')continue;
+   const building=matchCartoPoi(f.attributes||{},f.points[0],buildings);
+   if(!building)continue;
+   pairCartoPoi(building,f.points[0],f.attributes);
+   consumed.add(f);
+  }
+ }
+ return features.filter(f=>!consumed.has(f));
+}
+
 export function mergeCartoImport(project,inspection,rasters){
  const p=structuredClone(project),sourceLayers=new Set(inspection.sourceLayers);let replaced=0;
  const existing=new Set(p.features.filter(f=>f.carto).map(f=>f.carto.dataset));if(existing.size&&!existing.has(inspection.dataset))throw Error('地图范围或坐标系与现有 Carto 不同，请新建工程导入，避免错位覆盖规划');
  if(p.features.some(f=>originForFeature(f)==='planning')){const planned=createPlanningProject(p).project.features;p.features=[...p.features.filter(f=>originForFeature(f)==='carto'),...planned];}
- p.features=p.features.filter(f=>{const replace=f.carto?.dataset===inspection.dataset&&f.carto.layers.some(l=>sourceLayers.has(l));if(replace)replaced++;return !replace;});
- p.features.push(...structuredClone(inspection.features));
+ p.features=p.features.flatMap(f=>{
+  if(f.carto?.dataset!==inspection.dataset||!f.carto.layers.some(layer=>sourceLayers.has(layer)))return [f];
+  const remaining=f.carto.layers.find(layer=>!sourceLayers.has(layer));
+  replaced++;
+  const kept=remaining&&keepCartoSource(f,remaining);
+  return kept?[kept]:[];
+ });
+ p.features=repairCartoPairs([...p.features,...structuredClone(inspection.features)],inspection.dataset,sourceLayers);
  for(const r of rasters){p.rasters=p.rasters.filter(x=>x.id!==r.id);p.rasters.push(r);}
  const next=prepareEditor(p);next.settings.editor.origins.carto=true;for(const f of inspection.features){if(f.kind==='note'){next.settings.notesVisible=true;continue;}const key=layerKey(f),group=groupForLayer(key);if(group!=='zoning')next.settings.editor.groups[group]=true;if(key!=='building:municipal')next.settings.editor.layers[key].visible=key!=='district:tile';}
  if(rasters.length){next.settings.editor.groups.terrain=true;if(rasters.some(r=>r.id==='depth'))next.settings.editor.layers['terrain:landwater'].visible=true;}

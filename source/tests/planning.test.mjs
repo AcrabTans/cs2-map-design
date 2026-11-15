@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {initialProject,prepareEditor,originForFeature,visibleInEditor,lockedInEditor} from '../src/model.js';
-import {copyAsPlanning,createPlanningProject,mergePlanningProject,checkPlanningFrame} from '../src/planning.js';
+import {copyAsPlanning,createPlanningProject,mergePlanningProject,checkPlanningFrame,pickDistrict,districtPlanningStats} from '../src/planning.js';
 import {packProject,unpackProject} from '../src/project-file.js';
 import {mergeCartoImport} from '../src/carto.js';
 import {makeBuildingAssetFeature} from '../src/building-assets.js';
@@ -43,4 +43,45 @@ test('Carto refresh freezes imported parent dependencies instead of breaking a h
  const p=base();p.features.push({id:'planned-child',kind:'district',level:'small',name:'Plan',notes:'',color:'#83a67b',points:[[400,400],[800,400],[800,800],[400,800]],parentId:district.id});
  const result=mergeCartoImport(prepareEditor(p),{dataset:'same-map',sourceLayers:['Area_Boundary'],features:[]},[]);
  const child=result.project.features.find(f=>f.id==='planned-child');assert.notEqual(child.parentId,district.id);assert(result.project.features.some(f=>f.id===child.parentId&&!f.carto));assert(!result.project.features.some(f=>f.id===district.id));
+});
+
+test('district picking prefers nested small districts and accepts nearby edges',()=>{
+ const large={kind:'district',id:'large',points:[[0,0],[100,0],[100,100],[0,100]]};
+ const small={kind:'district',id:'small',level:'small',points:[[20,20],[80,20],[80,80],[20,80]]};
+ assert.equal(pickDistrict([small,large],[50,50],5),small);
+ assert.equal(pickDistrict([large,small],[104,50],5),large);
+ assert.equal(pickDistrict([large,small],[107,50],5),undefined);
+});
+test('district statistics clip road length at the boundary and group planning objects',()=>{
+ const district={kind:'district',id:'district',points:[[100,100],[300,100],[300,300],[100,300]],additionalParts:[[[180,180],[220,180],[220,220],[180,220]]]};
+ const points=[[20,200],[380,200]];
+ const features=[district,{kind:'road',type:'local',points},
+  {kind:'road',type:'local',points,carto:{layers:['Network_Centerline']}},
+  {kind:'zone',type:'villa',points:[[125,125],[145,125],[145,145],[125,145]]},
+  {kind:'building',type:'police',geometryType:'point',points:[[200,200]],districtId:'district'},
+  {kind:'building',type:'police',geometryType:'point',points:[[200,200]]}];
+ const stats=districtPlanningStats({features},district);
+ assert.equal(stats.area,38400);
+ assert(Math.abs(stats.roads.get('local')-160)<1e-9);
+ assert.equal(stats.zones.get('residential'),400);
+ assert.equal(stats.buildings.get('police'),1);
+});
+
+
+test('isolated workspaces merge only staged additions and protect reference objects', async ()=>{
+ const {mergePlanningWorkspace}=await import('../src/planning.js');
+ const original=prepareEditor(initialProject());
+ original.features=[{id:'reference',kind:'note',name:'工程现状',notes:'',points:[[200,200]]}];
+ const candidate=structuredClone(original);
+ candidate.features[0].name='只读参考在测试中被人为改掉';
+ candidate.features.push({id:'new-note',kind:'note',name:'主场景',notes:'构图',points:[[300,300]],
+  attributes:{PlanStage:'theme'}});
+ const options={referenceIds:new Set(['reference']),id:'workspace-id',frame:null};
+ const result=mergePlanningWorkspace(original,candidate,options);
+ assert.equal(result.count,1);
+ assert.equal(original.features.length,1);
+ assert.equal(result.project.features[0].name,'工程现状');
+ assert.equal(result.project.features[1].attributes.PlanWorkspace,'workspace-id');
+ assert.equal(mergePlanningWorkspace(result.project,candidate,options).replaced,1);
+ assert.throws(()=>mergePlanningWorkspace(result.project,candidate,{...options,id:'unrelated'}),/编号/);
 });

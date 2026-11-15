@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createEditScheduler,createSnapIndex,createCrossingCache} from '../src/edit-performance.js';
+import {createEditScheduler,createSnapIndex,createRoadSegmentIndex,createCrossingCache} from '../src/edit-performance.js';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {networkDisplay} from '../src/network-display.js';
-import {initialProject,prepareEditor} from '../src/model.js';
+import {initialProject,prepareEditor,geometryParts,nearestGeometryEdge,insertGeometryNodes} from '../src/model.js';
+import {featureHistorySnapshot,restoreFeatureHistory} from '../src/desktop-runtime.js';
 test('drag bursts paint once per frame and release flushes the latest geometry',()=>{
  const callbacks=new Map();let token=0,painted=[],x=0;
  const scheduler=createEditScheduler(()=>painted.push(x),{frame:cb=>{callbacks.set(++token,cb);return token;},cancelFrame:id=>callbacks.delete(id)});
@@ -33,10 +34,48 @@ test('road drag paints only the edited road, hides its old casing and restores i
  const app=fs.readFileSync(new URL('../src/app.js',import.meta.url),'utf8'),part=app.slice(app.indexOf('function paintDragPreview(){'),app.indexOf('function municipalCounts(){'));
  const project=prepareEditor(initialProject());project.features=[{id:'moving',kind:'road',type:'arterial',structure:'ground',width:40,corridor:72,points:[[100,100],[200,200]],name:'A'}];
  const old={style:{visibility:''}},host={children:[],contains:()=>false,replaceChildren(){this.children=[];}};
- const context={project,drag:{id:'moving',moved:true,kind:'node'},selectedNode:0,view:{scale:1},svg:{querySelectorAll:()=>[old]},$:()=>host,createEditScheduler:paint=>({cancel(){},flush:paint}),networkDisplay,isPolygonFeature:()=>false,featurePath:f=>JSON.stringify(f.points),featureDisplayColor:()=>'',node:(tag,attrs,parent)=>{const n={tag,attrs,children:[]};parent.children.push(n);return n;}};
+ const context={project,drag:{id:'moving',moved:true,kind:'node'},selectedNode:0,view:{scale:1},svg:{querySelectorAll:()=>[old]},$:()=>host,createEditScheduler:paint=>({cancel(){},flush:paint}),networkDisplay,geometryParts,isPolygonFeature:()=>false,featurePath:f=>JSON.stringify(f.points),featureDisplayColor:()=>'',node:(tag,attrs,parent)=>{const n={tag,attrs,children:[]};parent.children.push(n);return n;}};
  vm.createContext(context);vm.runInContext(part,context);
  for(let i=0;i<100;i++){project.features[0].points[0][0]=100+i;context.paintDragPreview();}
  assert.equal(old.style.visibility,'hidden');assert.equal(host.children.length,1);
  assert(host.children[0].children.some(n=>n.attrs.d?.includes('199')));
  context.clearDragPreview();assert.equal(old.style.visibility,'');
+});
+
+test('single-object history restores geometry and removed objects in order without copying neighbours',()=>{
+ const first={id:'before'},last={id:'after'};
+ const project={features:[first,{id:'edit',name:'Original',points:[[1,2],[3,4]]},last]};
+ const before=featureHistorySnapshot(project,'edit');
+ project.features[1].name='Renamed';project.features[1].points[0][0]=9;
+ const after=restoreFeatureHistory(project,before);
+ assert.deepEqual(project.features[1],{id:'edit',name:'Original',points:[[1,2],[3,4]]});
+ restoreFeatureHistory(project,after);
+ assert.deepEqual(project.features[1],{id:'edit',name:'Renamed',points:[[9,2],[3,4]]});
+ const deleted=featureHistorySnapshot(project,'edit');
+ project.features.splice(1,1);
+ const redo=restoreFeatureHistory(project,deleted);
+ assert.deepEqual(project.features.map(f=>f.id),['before','edit','after']);
+ restoreFeatureHistory(project,redo);
+ assert.deepEqual(project.features,[first,last]);
+ assert.equal(project.features[0],first);assert.equal(project.features[1],last);
+});
+
+test('road segment snapping inserts distinct junctions in order and keeps the original geometry',()=>{
+ const road={id:'road',kind:'road',points:[[100,100],[900,100]],additionalParts:[[[100,400],[900,400]]]};
+ const index=createRoadSegmentIndex([road]);
+ const a=index.nearest([800,108],20),b=index.nearest([300,98],20);
+ const c=index.nearest([600,405],20),endpoint=index.nearest([101,100],20);
+ assert.deepEqual(c.point,[600,400]);assert.equal(c.partIndex,1);
+ assert.equal(index.nearest([500,250],20),null);
+ const edited=insertGeometryNodes(road,[a,b,c,b]);
+ assert.deepEqual(edited.points,[[100,100],[300,100],[800,100],[900,100]]);
+ assert.deepEqual(edited.additionalParts[0],[[100,400],[600,400],[900,400]]);
+ assert.deepEqual(road.points,[[100,100],[900,100]]);
+ assert.equal(insertGeometryNodes(road,[{...endpoint,t:0}]),road);
+});
+test('edge insertion can split the closing edge of a selected district',()=>{
+ const district={id:'d',kind:'district',points:[[100,100],[300,100],[300,300],[100,300]]};
+ const hit=nearestGeometryEdge(district,[96,180]);
+ assert.equal(hit.index,3);
+ assert.deepEqual(insertGeometryNodes(district,[hit]).points.at(-1),[100,180]);
 });

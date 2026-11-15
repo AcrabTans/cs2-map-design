@@ -43,7 +43,36 @@ export async function unpackProject(input){
 export class ProjectFileWriter{
  constructor(){this.handle=null;this.baseline=null;this.tail=Promise.resolve();this.generation=0;}
  attach(handle,baseline){this.generation++;this.handle=handle;this.baseline=new Uint8Array(baseline);}
- save(bytes){const handle=this.handle,generation=this.generation;const job=this.tail.then(async()=>{if(!handle)throw Error('请先选择工程保存位置');if(generation!==this.generation)throw Error('工程文件已切换');const baseline=this.baseline,disk=new Uint8Array(await (await handle.getFile()).arrayBuffer());if(disk.length!==baseline.length||disk.some((n,i)=>n!==baseline[i]))throw Error('工程文件已被外部修改，请重新打开，或另存为其他文件');let writable;try{writable=await handle.createWritable();await writable.write(bytes);await writable.close();this.baseline=new Uint8Array(bytes);}catch(error){if(writable)try{await writable.abort();}catch{}throw error;}});this.tail=job.catch(()=>{});return job;}
+ save(bytesOrPrepare){
+  const handle=this.handle,generation=this.generation;
+  const job=this.tail.then(async()=>{
+   if(!handle)throw Error('请先选择工程保存位置');
+   const checkDisk=async()=>{
+    if(generation!==this.generation)throw Error('工程文件已切换');
+    const disk=new Uint8Array(await (await handle.getFile()).arrayBuffer());
+    if(disk.length!==this.baseline.length||disk.some((n,i)=>n!==this.baseline[i]))
+     throw Error('工程文件已被外部修改，请重新打开，或另存为其他文件');
+   };
+   await checkDisk();
+   let bytes=bytesOrPrepare;
+   if(typeof bytesOrPrepare==='function'){
+    bytes=await bytesOrPrepare();
+    await checkDisk();
+   }
+   let writable;
+   try{
+    writable=await handle.createWritable();
+    await writable.write(bytes);
+    await writable.close();
+    this.baseline=new Uint8Array(bytes);
+   }catch(error){
+    if(writable)try{await writable.abort();}catch{}
+    throw error;
+   }
+  });
+  this.tail=job.catch(()=>{});
+  return job;
+ }
 }
 
 export async function chooseProjectSaveTarget(current,{asNew=false,currentName,suggestedName,pick}={}){

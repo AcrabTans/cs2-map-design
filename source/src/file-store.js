@@ -36,6 +36,6 @@ export function projectBackup(mode,key,value){
   const request=indexedDB.open('island-planner-projects',1);
   request.onupgradeneeded=()=>request.result.createObjectStore('projects');
   request.onerror=()=>reject(request.error);
-  request.onsuccess=()=>{const db=request.result,tx=db.transaction('projects',mode==='get'?'readonly':'readwrite'),store=tx.objectStore('projects');let result;const op=mode==='get'?store.get(key):store.put(value,key);op.onsuccess=()=>result=op.result;tx.oncomplete=()=>{db.close();resolve(result)};tx.onerror=()=>{db.close();reject(tx.error)};tx.onabort=()=>{db.close();reject(tx.error)}};
+  request.onsuccess=()=>{const db=request.result,tx=db.transaction('projects',mode==='get'?'readonly':'readwrite'),store=tx.objectStore('projects');let result;const op=mode==='get'?store.get(key):mode==='delete'?store.delete(key):store.put(value,key);op.onsuccess=()=>result=op.result;tx.oncomplete=()=>{db.close();resolve(result)};tx.onerror=()=>{db.close();reject(tx.error)};tx.onabort=()=>{db.close();reject(tx.error)}};
  });
 }

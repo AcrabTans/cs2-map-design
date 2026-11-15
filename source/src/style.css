@@ -184,7 +184,7 @@ body.map-fullscreen{overflow:hidden}
 .desktop-menubar summary::-webkit-details-marker{display:none}
 .desktop-menubar details[open]>summary,.desktop-menubar summary:hover{background:#e5efe8}
 .desktop-menu-popup{position:absolute;top:100%;left:0;min-width:235px;padding:5px;background:#fcfdfb;border:1px solid var(--line);border-radius:5px;box-shadow:0 5px 20px #153b3925}
-.desktop-menu-popup button{display:flex;justify-content:space-between;align-items:center;gap:24px;width:100%;padding:7px 10px;border:0;text-align:left}
+.desktop-menu-popup button{display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;padding:7px 10px;border:0;text-align:left}
 .desktop-menu-popup small{color:#7b8d84;font-size:12px}
 .desktop-menu-popup hr{border:0;border-top:1px solid var(--line);margin:4px}
 .desktop-menubar .desktop-tools{display:flex;padding:0 0 0 16px;border:0;border-left:1px solid var(--line);margin-left:10px;gap:4px;min-height:0;height:30px}
@@ -298,3 +298,46 @@ body.map-fullscreen{overflow:hidden}
 .reference-links a{padding:5px 8px;color:var(--green);border:1px solid var(--line);border-radius:5px;text-decoration:none}
 .reference-links a:hover,.reference-links a:focus-visible{background:#e5efe8;text-decoration:underline}
 @media(max-width:500px){.about-notices,.help-keys{grid-template-columns:1fr;gap:4px}.about-notices dd,.help-keys dd{margin-bottom:6px}}
+
+#districtShapes path[data-id]{pointer-events:none}
+
+.master-plan-picks{display:grid;grid-template-columns:1fr auto;gap:6px}
+.master-plan-picks button[aria-pressed="true"]{background:#e3efe8;border-color:var(--green)}
+#masterPlanStatus{white-space:pre-line;font-size:13px}
+
+.desktop-menu-label{flex:1 1 auto;min-width:0;white-space:normal;overflow-wrap:anywhere;text-overflow:clip}
+.desktop-menu-popup small{flex:none;white-space:nowrap}
+.web-layer-menu button{white-space:normal;overflow-wrap:anywhere;text-overflow:clip}
+.planning-switch{display:flex;gap:6px;margin-bottom:12px}
+.planning-switch button{flex:1}
+.planning-switch button[aria-pressed="true"]{background:#dfebe1;color:#215e47;border-color:#82a892}
+.planning-uses details{margin:4px 0;border:1px solid var(--line);border-radius:5px;padding:6px 8px}
+.planning-uses summary{cursor:pointer}
+.planning-uses label{display:grid;grid-template-columns:1fr 60px;align-items:center;gap:6px;margin-top:4px}
+.planning-uses input{width:100%;min-width:0}
+.planning-mix-heading{margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:6px}
+.planning-mix-heading button{padding:4px 6px}
+#rightPanel[hidden],#inspectorTabs[hidden]{display:none}
+#rightPanel.inspector-planning #drawingActions{display:none}
+.workspace.inspector-hidden{grid-template-columns:270px minmax(300px,1fr)}
+@media(max-width:1100px){.workspace.inspector-hidden{grid-template-columns:225px minmax(260px,1fr)}}
+@media(max-width:900px){.workspace.inspector-hidden{grid-template-columns:215px minmax(200px,1fr)}}
+#planningPanel .two-fields,#planningPanel .master-plan-picks{margin-top:9px}
+
+.planning-district-results{margin-top:14px}
+.planning-district-results details{border-top:1px solid var(--line);padding:8px 0}
+.planning-district-results summary{cursor:pointer;font-weight:600}
+.planning-district-results p{margin:8px 0;font-size:13px;line-height:1.55}
+
+#localPlanUses label{grid-template-columns:minmax(0,1fr) 60px 1em}
+
+.scenic-volumes{margin:8px 0}
+.scenic-volumes summary{cursor:pointer;font-weight:600}
+#scenicVolumes label{display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:8px;align-items:center;margin:7px 0}
+
+#planWorkspacePanel{background:#e7f1eb;border-bottom:1px solid var(--line)}
+#planWorkspaceInfo{margin:5px 0 8px}
+#planWorkspaceLayers label{display:flex;gap:7px;align-items:center;margin:4px 0}
+#planWorkspaceLayers small{margin-left:auto;color:#426452}
+.plan-workspace-actions{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:9px}
+.plan-workspace-actions button{font-size:11px;padding:6px;white-space:normal}
