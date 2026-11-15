@@ -1,4 +1,4 @@
-# 地图规划设计器使用手册 · v0.5.1
+# 地图规划设计器使用手册 · v0.6.0
 
 解压到可写目录后运行 `MapDesign.exe`。程序启动时检查 Microsoft Edge WebView2，缺少时可从提示打开微软下载页。安装运行时后重新启动即可。若随包附有 `WebView2Loader.dll`，请与 EXE 放在同一目录。
 
