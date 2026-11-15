@@ -8,10 +8,10 @@ export function desktopHandle(info){
  if(info.kind==='directory')return {name:info.name,kind:'directory',nativeId:info.id,async *entries(){for(const child of await api.entries(info.id))yield [child.name,desktopHandle(child)];},getDirectoryHandle:async(name,o={})=>desktopHandle(await api.child(info.id,name,'directory',!!o.create)),getFileHandle:async(name,o={})=>desktopHandle(await api.child(info.id,name,'file',!!o.create))};
  return {name:info.name,kind:'file',nativeId:info.id,getFile:async()=>desktopFile({...await api.stat(info.id),id:info.id}),createWritable:async()=>{let bytes;return {write:async data=>{bytes=typeof data==='string'?new TextEncoder().encode(data):data;},close:async()=>{if(bytes!==undefined)await api.write(info.id,bytes);},abort:async()=>{bytes=undefined;}};}};
 }
-export function installDesktopPickers(){
+export function installDesktopPickers(commands){
  if(!window.mapDesktop)return;
  document.documentElement.classList.add('desktop-app');
- installDesktopMenu();
+ installDesktopMenu(commands);
  const cancelled=()=>new DOMException('已取消','AbortError');
  window.showOpenFilePicker=async()=>{const info=await window.mapDesktop.pick('project');if(!info)throw cancelled();return info.map(desktopHandle);};
  window.showSaveFilePicker=async options=>{const info=await window.mapDesktop.savePick(options?.suggestedName);if(!info)throw cancelled();return desktopHandle(info);};
@@ -35,15 +35,19 @@ export function restoreFeatureHistory(project,snapshot){
  return inverse;
 }
 
-async function installDesktopMenu(){
+async function installDesktopMenu(commands){
  const api=window.mapDesktop,bar=document.createElement('nav');bar.className='desktop-menubar';bar.setAttribute('aria-label','应用菜单');document.body.prepend(bar);
  const menus=await api.menus(),shortcuts=new Map();let active=null;
+ const run=key=>{
+  if(!Object.hasOwn(commands,key))return api.menuAction(key);
+  if(!document.querySelector('dialog[open]'))return commands[key]();
+ };
  const close=()=>{if(active){active.open=false;active.querySelector('summary').setAttribute('aria-expanded','false');active=null;}};
  for(const menu of menus){const folder=document.createElement('details'),summary=document.createElement('summary'),popup=document.createElement('div');summary.textContent=menu.label.replace(/\(&.\)/g,'');summary.setAttribute('aria-expanded','false');popup.className='desktop-menu-popup';folder.append(summary,popup);bar.append(folder);
   summary.onclick=e=>{e.preventDefault();const open=!folder.open;for(const b of bar.querySelectorAll('[data-menu-setting]')){const checked=!!document.getElementById(b.dataset.menuSetting)?.checked;b.querySelector('.desktop-menu-label').textContent=(checked?'✓ ':'　 ')+b.dataset.menuLabel;b.setAttribute('aria-checked',String(checked));}if(open&&menu.label==='编辑')popup.querySelector('[data-inspector-command]').textContent=document.getElementById('toggleInspector').textContent;close();folder.open=open;if(open){active=folder;summary.setAttribute('aria-expanded','true');}};
   summary.onmouseenter=()=>{if(active&&active!==folder){close();folder.open=true;active=folder;summary.setAttribute('aria-expanded','true');}};
-  for(const item of menu.submenu){if(item.type==='separator'){popup.append(document.createElement('hr'));continue;}const button=document.createElement('button'),label=document.createElement('span');label.className='desktop-menu-label';label.textContent=item.label;if(item.key==='toggleInspector')label.dataset.inspectorCommand='';button.append(label);if(item.setting){button.dataset.menuSetting=item.setting;button.dataset.menuLabel=item.label;button.setAttribute('role','menuitemcheckbox');}if(item.accelerator){const shortcut=document.createElement('small');shortcut.textContent=item.accelerator;button.append(shortcut);}button.onclick=()=>{close();api.menuAction(item.key);};popup.append(button);if(item.accelerator)shortcuts.set(item.accelerator.toLowerCase(),item.key);}
+  for(const item of menu.submenu){if(item.type==='separator'){popup.append(document.createElement('hr'));continue;}const button=document.createElement('button'),label=document.createElement('span');label.className='desktop-menu-label';label.textContent=item.label;if(item.key==='toggleInspector')label.dataset.inspectorCommand='';button.append(label);if(item.setting){button.dataset.menuSetting=item.setting;button.dataset.menuLabel=item.label;button.setAttribute('role','menuitemcheckbox');}if(item.accelerator){const shortcut=document.createElement('small');shortcut.textContent=item.accelerator;button.append(shortcut);}button.onclick=()=>{close();run(item.key);};popup.append(button);if(item.accelerator)shortcuts.set(item.accelerator.toLowerCase(),item.key);}
  }
  const tools=document.querySelector('.editor-tools');tools.classList.add('desktop-tools');bar.append(tools);document.getElementById('baseImportBtn').hidden=true;
- document.addEventListener('pointerdown',e=>{if(!bar.contains(e.target))close();});document.addEventListener('keydown',e=>{if(e.key==='Escape'){close();return;}const chord=(e.ctrlKey?'ctrl+':'')+(e.shiftKey?'shift+':'')+e.key.toLowerCase();if(['ctrl+s','ctrl+shift+s','ctrl+z','ctrl+shift+z'].includes(chord))return;const key=shortcuts.get(chord);if(key){e.preventDefault();api.menuAction(key);}});
+ document.addEventListener('pointerdown',e=>{if(!bar.contains(e.target))close();});document.addEventListener('keydown',e=>{if(e.key==='Escape'){close();return;}const chord=(e.ctrlKey?'ctrl+':'')+(e.shiftKey?'shift+':'')+e.key.toLowerCase();if(['ctrl+s','ctrl+shift+s','ctrl+z','ctrl+shift+z'].includes(chord))return;const key=shortcuts.get(chord);if(key){e.preventDefault();run(key);}});
 }

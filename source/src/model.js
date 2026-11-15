@@ -96,25 +96,6 @@ export function validateProject(data){
  for(const r of ROADS)for(const k of ['visible','locked'])if(typeof s.layers?.[r.id]?.[k]==='boolean')clean.settings.layers[r.id][k]=s.layers[r.id][k];validateEditorProject(clean,data);return clean;
 }
 
-export const isNewFeature=(project,feature)=>project.proposal?.newFeatureIds?.includes(feature.id)||false;
-export const isProtectedZone=(project,feature)=>feature.kind==='zone'&&project.settings.protectExistingZones!==false&&(project.proposal?.preservedZoneIds?.includes(feature.id)||false);
-
-export function applyFeaturePatch(project,patch){
- if(project.proposal?.appliedPatches?.includes(patch.id))return {project,applied:false};
- const replacement=new Map((patch.replace||[]).map(f=>[f.id,f]));const remove=new Set(patch.removeIds||[]);
- const targets=project.features.filter(f=>replacement.has(f.id)||remove.has(f.id));
- if(targets.some(f=>f.kind==='zone')||(patch.replace||[]).some(f=>f.kind==='zone'))throw Error('道路修正不能改动区划');
- const next=structuredClone(project);
- next.features=next.features.filter(f=>!remove.has(f.id)).map(f=>replacement.has(f.id)?structuredClone(replacement.get(f.id)):f);
- const ids=new Set(next.features.map(f=>f.id));
- for(const f of patch.add||[])if(!ids.has(f.id)){next.features.push(structuredClone(f));ids.add(f.id)}
- next.proposal=next.proposal||{revision:'细化方案 02',source:''};
- next.proposal.newFeatureIds=[...new Set([...(next.proposal.newFeatureIds||[]).filter(id=>!remove.has(id)),...(patch.add||[]).map(f=>f.id)])];
- if(patch.interchange){next.proposal.interchanges=(next.proposal.interchanges||[]).map(s=>s.name===patch.interchange.name?structuredClone(patch.interchange):s);const note=next.features.find(f=>f.kind==='note'&&f.name===patch.interchange.name);if(note)note.notes=patch.interchange.description;}
- next.proposal.appliedPatches=[...(next.proposal.appliedPatches||[]),patch.id];
- return {project:next,applied:true};
-}
-
 export const isPolygonFeature=f=>f.kind==='road'&&f.geometryType==='polygon'||['zone','district','interchange'].includes(f.kind)||(f.kind==='building'&&f.geometryType!=='point');
 export function pointInPolygon(p,points){let inside=false;for(let i=0,j=points.length-1;i<points.length;j=i++){const a=points[i],b=points[j];if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])inside=!inside;}return inside;}
 export function interiorPoint(points){
@@ -124,9 +105,6 @@ export function interiorPoint(points){
  for(const frac of [.5,.35,.65,.2,.8]){const yy=lo+(hi-lo)*frac,hits=[];for(let i=0;i<points.length;i++){const a=points[i],b=points[(i+1)%points.length];if((a[1]>yy)!==(b[1]>yy))hits.push(a[0]+(yy-a[1])*(b[0]-a[0])/(b[1]-a[1]));}hits.sort((a,b)=>a-b);for(let i=0;i+1<hits.length;i+=2){const w=hits[i+1]-hits[i];if(!best||w>best.w)best={w,p:[(hits[i]+hits[i+1])/2,yy]};}}
  return best?.p||points[0];
 }
-export function districtAt(project,p){return project.features.find(f=>f.kind==='district'&&pointInPolygon(p,f.points))?.id||'';}
-export function visibleInPlanView(project,f){const mode=project.settings.planView||'detail';if(f.kind==='district')return project.settings.districtsVisible!==false;if(f.kind==='zone')return mode==='detail'||['station','depot','civic'].includes(f.type)||f.name==='生态绿地';if(f.kind==='road'&&mode==='districts'&&['local-wide','local','alley','path','metro','bus'].includes(f.type))return false;return true;}
-
 // Editor v2 keeps legacy feature geometry untouched; missing metadata has defaults.
 export const GROUPS=[['area','地块 Area'],['network','路网 Network'],['building','建筑 Building'],['route','交通 Route'],['zoning','用地 Zoning'],['terrain','地形 Terrain']];
 export const BLOCK_CLASSES=[

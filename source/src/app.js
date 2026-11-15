@@ -1,7 +1,16 @@
 import './tauri-bridge.js';
 import {NAME_STYLES,NAME_TYPES,nameCandidates,drawNames} from './name-generator.js';
 import {installDesktopPickers,desktopFile,lightHistorySnapshot,restoreHistorySnapshot,featureHistorySnapshot,restoreFeatureHistory} from './desktop-runtime.js';
-installDesktopPickers();
+installDesktopPickers({
+ exportPngBtn:openPngExport,
+ manageLayers:openLayerManager,
+ manageBasemaps:openBasemapManager,
+ importPlanning:importPlanningLayer,
+ exportPlanning:exportPlanningLayer,
+ openBuiltinAssets:()=>openAssetPackage('blob'),
+ manageAssetPacks:openAssetManager,
+ aboutApp:openAboutDialog
+});
 import {readProjectFolder,directoryProjectEntries,folderFileHandle,saveFolderLibraries} from './project-folder.js';
 import {removeProjectAssetPacks,buildingPacksFor,includePlacedAsset,catalogPage,readAssetSelection,buildingAngle,transformBuildingRing,buildingAssetLot,buildingAssetFits,makeBuildingAssetFeature,rotateBuildingAsset,moveBuildingAsset} from './building-assets.js';
 import {packCartoRecords,cartoExportRecords,CARTO_EXPORT_LAYERS} from './carto-export.js';
@@ -9,7 +18,7 @@ import {packProject,packTauriProject,unpackProject,ProjectFileWriter,chooseProje
 import {createEditScheduler,createSnapIndex,createRoadSegmentIndex,createCrossingCache} from './edit-performance.js';
 import {networkDisplay,mapScrollAxis,createViewportScheduler} from './network-display.js';
 import {roadStackLevel,isStreetRoad,buildNetworkCrossings,junctionSectors,roadFlatEnds,crossingRelation} from './network-crossings.js';
-import {SIZE,ROADS,ZONES,MUNICIPAL_TYPES,municipalClass,municipalVisible,defaultLayerColor,featureDisplayColor,roadStyleColors,zoneInfo,roadInfo,distance,length,area,nearestGeometryEdge,geometryParts,insertGeometryNodes,initialProject,validateProject,isNewFeature,isProtectedZone,applyFeaturePatch,isPolygonFeature,interiorPoint,districtAt,visibleInPlanView,GROUPS,BLOCK_CLASSES,BUILDINGS,blockClass,classInfo,featureSource,layerKey,editorSettings,visibleInEditor,labelsVisibleInEditor,originForFeature,lockedInEditor,prepareEditor,correctionCopy,validateInterchangeBounds,containedGeometry,buildingCategory,groupForLayer,layerKeysForGroup,CARTO_FIELDS,fieldsForLayer} from './model.js';
+import {SIZE,ROADS,ZONES,MUNICIPAL_TYPES,municipalClass,municipalVisible,defaultLayerColor,featureDisplayColor,roadStyleColors,zoneInfo,roadInfo,distance,length,area,nearestGeometryEdge,geometryParts,insertGeometryNodes,initialProject,validateProject,isPolygonFeature,interiorPoint,GROUPS,BLOCK_CLASSES,BUILDINGS,blockClass,classInfo,featureSource,layerKey,visibleInEditor,labelsVisibleInEditor,originForFeature,lockedInEditor,prepareEditor,correctionCopy,validateInterchangeBounds,containedGeometry,buildingCategory,groupForLayer,layerKeysForGroup,CARTO_FIELDS,fieldsForLayer} from './model.js';
 import {terrainType,readTerrainTiff,terrainPixels,checkTerrainExtent,correctTerrainSource,terrainFingerprint} from './terrain.js';
 import {inspectCartoFolder,mergeCartoImport} from './carto.js';
 import {projectMapFrame,checkPlanningFrame,copyAsPlanning,createPlanningProject,mergePlanningProject,pickDistrict,districtPlanningStats,planningWorkspaceStages,planningStageOf,planningWorkspaceAdditions,mergePlanningWorkspace} from './planning.js';
@@ -174,7 +183,6 @@ async function openProjectFile(){
 }
 function newProject(){const p=prepareEditor(initialProject());p.title='新地图工程';p.features=[];p.basemaps=[];p.rasters=[];p.settings.base='none';requestProject({project:p,fileName:'新地图工程.cs2map',isNew:true});}
 
-
 async function openProjectFolder(){
  try{
   if(!('showDirectoryPicker' in window)){$('projectFolderInput').click();return;}
@@ -285,8 +293,6 @@ function networkCrossingFields(f,disabled){
  for(const junction of networkJunctions.filter(n=>n.roads.some(r=>r.id===f.id))){const relations=new Set(junction.roads.filter(r=>r.id!==f.id).map(r=>crossingRelation(f,r)));for(const key of Object.keys(counts))if(relations.has(key))counts[key]++;}
  return `<label class="field-label" for="editStackLevel">交叉层级</label><input id="editStackLevel" type="number" min="-20" max="20" step="1" placeholder="自动：${roadStackLevel({...f,stackLevel:undefined})}" value="${f.stackLevel??''}" ${disabled}><p class="muted network-crossing-hint">留空按结构：地下 −1、地面 0、高架／桥梁 1。数字越大越在上层；同层公路按平交显示。局部变层时分段绘制。</p><p class="muted">当前可见交叉：平交 ${counts.connected} 处 · 上跨 ${counts.above} 处 · 下穿 ${counts.below} 处</p>`;
 }
-function legacyFeatureVisible(f){if(!visibleInPlanView(project,f))return false;if(f.kind==='district')return true;if(isNewFeature(project,f)&&((f.kind==='zone'&&project.settings.showNewZones===false)||(f.kind==='road'&&project.settings.showNewRoads===false)))return false;return f.kind==='road'?project.settings.layers[f.type].visible:f.kind==='zone'?project.settings.zonesVisible:project.settings.notesVisible}
-function legacyLocked(f){if(isProtectedZone(project,f))return true;return f.kind==='road'?project.settings.layers[f.type].locked:f.kind==='zone'?project.settings.zonesLocked:false}
 function getSelected(){return project.features.find(f=>f.id===selected)}
 function screenPoint(e){const r=svg.getBoundingClientRect();return [view.cx+(e.clientX-r.left-r.width/2)/view.scale,view.cy+(e.clientY-r.top-r.height/2)/view.scale]}
 function inMap(p){return p[0]>=0&&p[0]<=SIZE&&p[1]>=0&&p[1]<=SIZE}
@@ -397,7 +403,6 @@ function draftRoadFeatures(road){
  }
  return [...project.features.map(f=>byRoad.has(f.id)?insertGeometryNodes(f,byRoad.get(f.id)):f),road];
 }
-function legacyFinish(){const min=['zone','district','building','interchange'].includes(tool)?3:2;if(draft.length<min)return;if(tool==='measure'){toast(`测量总长 ${fmt(length(draft))}`);return}if(!['road','zone','district','building','interchange'].includes(tool))return;const kind=tool,type=kind==='road'?roadType:zoneType,info=kind==='road'?roadInfo(type):zoneInfo(type),name=kind==='road'?info.name:info[1];const f={id:crypto.randomUUID(),kind,type,name:`${name} ${project.features.filter(f=>f.kind===kind&&f.type===type).length+1}`,points:structuredClone(draft),notes:''};if(kind==='road'){f.width=info.width;f.corridor=info.corridor;f.structure=type==='metro'?'tunnel':'ground'}if(isPolygonFeature(f)&&area(f.points)<1){toast('区划面积太小，请再添加不同方向的节点');return}if(kind==='district'){f.name='新片区';f.color='#6a9993';project.settings.districtsVisible=true}else{const id=districtAt(project,kind==='zone'?interiorPoint(f.points):f.points[0]);if(id)f.districtId=id}addFeature(f);syncUI()}
 function selectFeature(feature,nodeIndex=null){
  assetPanelMode='properties';
  if(feature){
@@ -463,21 +468,7 @@ function deleteSelected(){
   }
   selected=null;selectedNode=null;
  }
- syncDistrictUI();render();renderProperties();persist();
-}
-function fitDistrictExtent(){const ds=project.features.filter(f=>f.kind==='district');if(!ds.length)return;const ps=ds.flatMap(f=>f.points),xs=ps.map(p=>p[0]),ys=ps.map(p=>p[1]),x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys),r=viewport.getBoundingClientRect();view={cx:(x0+x1)/2,cy:(y0+y1)/2,scale:Math.min(r.width/(x1-x0+500),r.height/(y1-y0+500))};render();}
-function legacyBuildLayers(){const host=$('roadLayers');for(const r of ROADS){const row=document.createElement('div');row.className='layer-row';row.dataset.road=r.id;row.innerHTML=`<label title="显示 / 隐藏${r.name}"><input type="checkbox" data-visible="${r.id}" aria-label="显示${r.name}"></label><button class="layer-draw" title="绘制${r.name}"><span class="line-sample ${r.dash?'dashed':''}" style="--c:${r.color}"></span>${r.name}</button><small>${r.width} m</small><button class="lock-button" data-lock="${r.id}" aria-label="锁定${r.name}" title="锁定图层">◇</button>`;row.querySelector('.layer-draw').onclick=()=>{if(project.settings.layers[r.id].locked){toast('请先解锁图层');return}project.settings.layers[r.id].visible=true;if(project.settings.planView==='districts')project.settings.planView='streets';roadType=r.id;setTool('road');syncUI()};row.querySelector('input').onchange=e=>{project.settings.layers[r.id].visible=e.target.checked;if(getSelected()?.type===r.id&&!e.target.checked)selected=null;render();renderProperties();persist()};row.querySelector('[data-lock]').onclick=()=>{const layer=project.settings.layers[r.id];layer.locked=!layer.locked;if(tool==='road'&&roadType===r.id&&layer.locked)setTool('select');syncUI();render();renderProperties();persist()};host.appendChild(row)}
- $('zoneCategory').innerHTML=ZONES.map(([group,zs])=>`<optgroup label="${group}">${zs.map(z=>`<option value="${z[0]}">${z[1]}</option>`).join('')}</optgroup>`).join('');
-}
-function legacySyncUI(){const s=project.settings;syncDistrictUI();$('proposalControls').hidden=!project.proposal?.preservedZoneIds?.length;for(const [id,key]of [['protectExistingToggle','protectExistingZones'],['showNewZonesToggle','showNewZones'],['showNewRoadsToggle','showNewRoads']])$(id).checked=s[key]!==false;document.querySelectorAll('[data-base]').forEach(b=>b.classList.toggle('active',b.dataset.base===s.base));for(const [id,k]of [['zoneOpacity','zoneOpacity']]){$(id).value=s[k];$(id+'Value').textContent=s[k]+'%'}for(const [id,k]of [['gridToggle','grid'],['snapToggle','snap'],['zonesVisible','zonesVisible'],['notesVisible','notesVisible']])$(id).checked=s[k];for(const r of ROADS){document.querySelector(`[data-visible="${r.id}"]`).checked=s.layers[r.id].visible;const b=document.querySelector(`[data-lock="${r.id}"]`);b.classList.toggle('locked',s.layers[r.id].locked);b.textContent=s.layers[r.id].locked?'◆':'◇';b.setAttribute('aria-pressed',String(s.layers[r.id].locked))}$('zonesLock').classList.toggle('locked',s.zonesLocked);$('zonesLock').textContent=s.zonesLocked?'◆':'◇';$('zonesLock').setAttribute('aria-pressed',String(s.zonesLocked));$('zoneCategory').value=zoneType;$('projectNotes').value=project.notes;}
-function legacyRenderProperties(){const host=$('propertiesPanel'),f=getSelected();document.querySelector('.right-panel').classList.toggle('has-selection',!!f);if(!f){const roads=project.features.filter(f=>f.kind==='road'),zones=project.features.filter(f=>f.kind==='zone'),hasDistricts=project.features.some(f=>f.kind==='district');host.innerHTML=`<div class="empty-state"><div class="empty-art">⌖</div><h2>${hasDistricts?'先看片区，再看街区。':'一座城，从一条线开始。'}</h2><p>${hasDistricts?'点击左侧片区名称定位，再切换内部路网或功能区块。':'选择左侧的道路或区划工具<br>在底图上勾勒第一笔。'}</p><div class="stat-grid"><div><strong>${roads.length}</strong><span>路网与交通线路</span></div><div><strong>${zones.length}</strong><span>功能区划</span></div></div><div class="empty-detail"><h3>为城市保留生长的余地</h3><p>${hasDistricts?'大片区边界不等于建设边界。道路和功能区块分别调整，学校、公园与开放空间一起预留。':'先确定对外通道、主要交通骨架与功能组团，再逐步细化街区。道路走廊可为树带、慢行与造景预留宽度。'}</p></div><label class="check-row"><input id="corridorToggle" type="checkbox" ${project.settings.corridors?'checked':''}>显示道路预留走廊</label><p class="muted">底图按14.336km边长映射，建筑尺寸与道路资产后续在游戏内核验。</p></div>`;$('corridorToggle').onchange=e=>{project.settings.corridors=e.target.checked;render();persist()};return}
- const isLocked=locked(f),isRoad=f.kind==='road',isZone=f.kind==='zone',isDistrict=f.kind==='district';const kind=isRoad?roadInfo(f.type).name:isZone?zoneInfo(f.type)[1]:isDistrict?'大片区':'文字标注';
- host.innerHTML=`<div class="object-kind">${isRoad?'NETWORK':isZone?'BLOCK':isDistrict?'DISTRICT':'ANNOTATION'} / ${escape(kind)}${isLocked?' · 已锁定':''}</div><h2 class="property-title">${escape(f.name)}</h2><p class="property-hint">${isProtectedZone(project,f)?'现有区划已保护；取消左侧“保护现有区划”后才能修改。':isLocked?'解锁左侧图层后即可修改。':'选择模式下拖动节点调整形状。'}${selectedNode!==null?` 已选节点 ${selectedNode+1}。`:''}</p><label class="field-label" for="featureName">名称</label><input id="featureName" type="text" maxlength="300" value="${escape(f.name)}" ${isLocked?'disabled':''}>
- ${isRoad?`<label class="field-label">道路等级 / 线路类型</label><select id="featureType" ${isLocked?'disabled':''}>${ROADS.map(r=>`<option value="${r.id}" ${r.id===f.type?'selected':''}>${r.name}</option>`).join('')}</select><div class="two-fields"><div><label class="field-label">${['bus','metro'].includes(f.type)?'线路占位宽度':'路面宽度'} (m)</label><input id="featureWidth" type="number" min="1" max="1000" value="${f.width}" ${isLocked?'disabled':''}></div><div><label class="field-label">预留走廊 (m)</label><input id="featureCorridor" type="number" min="1" max="2000" value="${f.corridor}" ${isLocked?'disabled':''}></div></div><label class="field-label">线路结构</label><select id="featureStructure" ${isLocked?'disabled':''}>${[['ground','地面'],['bridge','桥梁'],['tunnel','隧道'],['elevated','高架']].map(([v,n])=>`<option value="${v}" ${f.structure===v?'selected':''}>${n}</option>`).join('')}</select><div class="metric-box"><small>中心线长度</small><strong>${fmt(length(f.points))}</strong><span>含两侧预留 ${(f.corridor-f.width)/2} m / 侧<br>宽度为规划值，需按实际资产核对。</span></div><label class="check-row"><input id="corridorToggle" type="checkbox" ${project.settings.corridors?'checked':''}>显示所有道路预留走廊</label>`:''}
- ${districtPropertyFields(f,isLocked)}${isZone?`<label class="field-label">区划类型</label><select id="featureType" ${isLocked?'disabled':''}>${ZONES.map(([g,zs])=>`<optgroup label="${g}">${zs.map(z=>`<option value="${z[0]}" ${z[0]===f.type?'selected':''}>${z[1]}</option>`).join('')}</optgroup>`).join('')}</select><div class="metric-box"><small>规划用地面积</small><strong>${fmtArea(area(f.points))}</strong><span>按 14.336 km 底图估算，允许区划叠加。面积不扣除重叠及水域。</span></div>`:''}
- <label class="field-label">备注 / 预留要求</label><textarea id="featureNotes" rows="4" maxlength="20000" ${isLocked?'disabled':''} placeholder="例如：两侧留树带；桥下保留通航净空…">${escape(f.notes)}</textarea><p class="muted">${f.points.length} 个节点${isZone?' · 平面多边形':''}</p><button id="deleteFeature" class="danger-button" ${isLocked?'disabled':''}>${selectedNode!==null&&f.kind!=='note'?'删除选中节点':'删除这个对象'} · Delete</button>`;
- const bind=(id,prop,convert=x=>x)=>{const el=$(id);if(!el)return;el.onchange=()=>{let value=convert(el.value);if(prop==='name')value=value.trim()||kind;if(prop==='width'||prop==='corridor'){const max=prop==='width'?1000:2000;if(!Number.isFinite(value)||value<1||value>max||(prop==='corridor'&&value<f.width)){toast('请输入有效宽度，走廊宽度需大于或等于路面宽度');renderProperties();return}}if(prop==='type'&&isRoad&&project.settings.layers[value].locked){toast('目标图层已锁定');renderProperties();return}checkpoint();f[prop]=value;if(prop==='width')f.corridor=Math.max(f.corridor,value);if(prop==='type'&&isRoad)project.settings.layers[value].visible=true;render();renderProperties();syncUI();persist()}};
- bind('featureDistrict','districtId');bind('districtColor','color');bind('featureName','name');bind('featureNotes','notes');bind('featureType','type');bind('featureWidth','width',Number);bind('featureCorridor','corridor',Number);bind('featureStructure','structure');$('deleteFeature').onclick=()=>{deleteSelected();syncDistrictUI()};for(const b of host.querySelectorAll('[data-district-view]'))b.onclick=()=>setPlanView(b.dataset.districtView);if($('corridorToggle'))$('corridorToggle').onchange=e=>{project.settings.corridors=e.target.checked;render();persist()};
+ changed();
 }
 function canInsertNode(feature){
  return feature&&feature.kind!=='note'&&feature.geometryType!=='point'&&!feature.assetPlacement&&!locked(feature);
@@ -572,11 +563,9 @@ svg.addEventListener('dblclick',e=>{
  }catch(error){toast(error.message);}
 });
 viewport.addEventListener('wheel',e=>{e.preventDefault();zoom(Math.exp(-e.deltaY*.0015),screenPoint(e))},{passive:false});
-window.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.querySelector('dialog[open]'))return;const key=e.key.toLowerCase();if((e.ctrlKey||e.metaKey)&&key==='z'){e.preventDefault();undo(e.shiftKey);return}if((e.ctrlKey||e.metaKey)&&key==='y'){e.preventDefault();undo(true);return}if(e.code==='Space'){e.preventDefault();space=true;viewport.style.cursor='grab'}if(key==='escape'){draft=[];hover=null;if(tool==='asset-place')stopAssetPlacement();else setTool('select')}if(key==='enter'){e.preventDefault();finish()}if(key==='delete'||key==='backspace'){e.preventDefault();if(draft.length){draft.pop();renderDraft()}else deleteSelected()}if(!e.ctrlKey&&!e.metaKey){if(key==='v')setTool('select');if(key==='h')setTool('pan');if(key==='m')setTool('measure');if(key==='z')startZone();if(key==='d')startDistrict()}});
+window.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.querySelector('dialog[open]'))return;const key=e.key.toLowerCase();if((e.ctrlKey||e.metaKey)&&key==='z'){e.preventDefault();undo(e.shiftKey);return}if((e.ctrlKey||e.metaKey)&&key==='y'){e.preventDefault();undo(true);return}if(e.code==='Space'){e.preventDefault();space=true;viewport.style.cursor='grab'}if(key==='escape'){draft=[];hover=null;if(tool==='asset-place')stopAssetPlacement();else setTool('select')}if(key==='enter'){e.preventDefault();finish()}if(key==='delete'||key==='backspace'){e.preventDefault();if(draft.length){draft.pop();renderDraft()}else deleteSelected()}if(!e.ctrlKey&&!e.metaKey){if(key==='v')setTool('select');if(key==='h')setTool('pan');if(key==='m')setTool('measure');if(key==='z')drawOnLayer('zone');if(key==='d')drawOnLayer('district:large')}});
 window.addEventListener('keyup',e=>{if(e.code==='Space'){space=false;viewport.style.cursor=tool==='pan'?'grab':tool==='select'?'default':'crosshair'}});window.addEventListener('blur',()=>space=false);
-function startZone(){project.settings.planView='detail';if(project.settings.zonesLocked){toast('请先解锁区划图层');return}project.settings.zonesVisible=true;setTool('zone');syncUI()}
-$('districtTool').onclick=startDistrict;document.querySelectorAll('[data-plan-view]').forEach(b=>b.onclick=()=>setPlanView(b.dataset.planView));$('districtsVisible').onchange=e=>{project.settings.districtsVisible=e.target.checked;render();persist()};
-$('selectTool').onclick=()=>setTool('select');$('panTool').onclick=()=>setTool('pan');$('measureTool').onclick=()=>setTool('measure');$('zoneTool').onclick=startZone;$('finishBtn').onclick=finish;$('cancelBtn').onclick=()=>setTool('select');$('undoBtn').onclick=()=>undo();$('redoBtn').onclick=()=>undo(true);$('zoomIn').onclick=()=>zoom(1.4);$('zoomOut').onclick=()=>zoom(1/1.4);$('fitBtn').onclick=fit;
+$('selectTool').onclick=()=>setTool('select');$('panTool').onclick=()=>setTool('pan');$('measureTool').onclick=()=>setTool('measure');$('finishBtn').onclick=finish;$('cancelBtn').onclick=()=>setTool('select');$('undoBtn').onclick=()=>undo();$('redoBtn').onclick=()=>undo(true);$('zoomIn').onclick=()=>zoom(1.4);$('zoomOut').onclick=()=>zoom(1/1.4);$('fitBtn').onclick=fit;
 let mapExpanded=false,nativeMapFullscreen=false;
 const mapShell=viewport.closest('.map-shell');
 function setMapExpanded(on){mapExpanded=on;mapShell.classList.toggle('map-expanded',on);document.body.classList.toggle('map-fullscreen',on);$('fullscreenBtn').setAttribute('aria-pressed',String(on));$('fullscreenBtn').setAttribute('aria-label',on?'退出全屏':'全屏地图');$('fullscreenBtn').title=on?'退出全屏 (Esc)':'全屏地图';}
@@ -584,30 +573,22 @@ $('fullscreenBtn').onclick=async()=>{if(mapExpanded){setMapExpanded(false);if(do
 document.addEventListener('fullscreenchange',()=>{if(document.fullscreenElement===mapShell){nativeMapFullscreen=true;setMapExpanded(true);}else if(nativeMapFullscreen){nativeMapFullscreen=false;setMapExpanded(false);}});
 window.addEventListener('keydown',e=>{if(e.key==='Escape'&&mapExpanded&&!document.fullscreenElement)setMapExpanded(false);});
 
-$('zoneCategory').onchange=e=>{zoneType=e.target.value;if(tool==='zone'){updateStatus();renderDraft()}};
-document.querySelectorAll('[data-base]').forEach(b=>b.onclick=()=>{project.settings.base=b.dataset.base;syncUI();render();persist()});
-for(const [id,k]of [['zoneOpacity','zoneOpacity']])$(id).oninput=e=>{project.settings[k]=Number(e.target.value);$(id+'Value').textContent=e.target.value+'%';render();persist()};
-for(const [id,k]of [['gridToggle','grid'],['snapToggle','snap'],['zonesVisible','zonesVisible'],['notesVisible','notesVisible']])$(id).onchange=e=>{project.settings[k]=e.target.checked;if(k==='zonesVisible'&&!e.target.checked&&getSelected()?.kind==='zone')selected=null;render();renderProperties();persist()};
-$('zonesLock').onclick=()=>{project.settings.zonesLocked=!project.settings.zonesLocked;if(project.settings.zonesLocked&&tool==='zone')setTool('select');syncUI();render();renderProperties();persist()};
-for(const [id,key]of [['protectExistingToggle','protectExistingZones'],['showNewZonesToggle','showNewZones'],['showNewRoadsToggle','showNewRoads']])$(id).onchange=e=>{project.settings[key]=e.target.checked;if(getSelected()&&!featureVisible(getSelected()))selected=null;render();renderProperties();persist()};
-$('projectNotes').onchange=e=>{checkpoint();project.notes=e.target.value.slice(0,20000);persist()};
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(t=>t.classList.toggle('active',t===b));$('propertiesPanel').hidden=b.dataset.tab!=='properties';$('briefPanel').hidden=b.dataset.tab!=='brief'});
+$('zoneOpacity').oninput=event=>{
+ project.settings.zoneOpacity=Number(event.target.value);
+ $('zoneOpacityValue').textContent=event.target.value+'%';
+ render();persist();
+};
+for(const key of ['grid','snap','notesVisible']){
+ const control=$(key==='notesVisible'?key:key+'Toggle');
+ control.onchange=()=>{project.settings[key]=control.checked;render();renderProperties();persist();};
+}
 window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();if(document.querySelector('dialog[open]'))return;document.activeElement?.blur();saveProject(e.shiftKey);}},true);
 window.addEventListener('pagehide',saveBrowser);
 window.addEventListener('beforeunload',e=>{if(!window.mapDesktop?.tauri&&(projectDirty||projectSaving||planningWorkspace?.dirty)){e.preventDefault();e.returnValue='';}});
-$('helpBtn').onclick=()=>$('helpDialog').showModal();$('closeHelp').onclick=()=>$('helpDialog').close();
+$('helpBtn').onclick=()=>$('helpDialog').showModal();
 async function download(content,name,mime,onWrite){if(window.mapDesktop?.exportPick){const target=await window.mapDesktop.exportPick(name);if(!target)throw new DOMException('已取消','AbortError');await onWrite?.();const bytes=new Uint8Array(await new Blob([content]).arrayBuffer());await window.mapDesktop.write(target.id,bytes);return;}await onWrite?.();const url=URL.createObjectURL(new Blob([content],{type:mime}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000)}
-$('exportBtn').onclick=()=>saveProject();
 $('importBtn').onclick=openProjectFile;$('importFile').onchange=async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;try{await acceptProjectFile(file);}catch(error){toast('打开失败：'+error.message);}};
 
-
-
-function setPlanView(mode){project.settings.planView=mode;if(selected&&!featureVisible(getSelected()))selected=null;setTool('select');syncUI();render();renderProperties();persist();}
-function startDistrict(){project.settings.planView='districts';project.settings.districtsVisible=true;setTool('district');syncUI();}
-function focusDistrict(f){const xs=f.points.map(p=>p[0]),ys=f.points.map(p=>p[1]),x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys),r=viewport.getBoundingClientRect();view={cx:(x0+x1)/2,cy:(y0+y1)/2,scale:Math.min(r.width/(x1-x0+350),r.height/(y1-y0+350))};project.settings.districtsVisible=true;selectFeature(f);viewportScheduler.schedule();syncDistrictUI();}
-function syncDistrictUI(){const mode=project.settings.planView||'detail';document.querySelectorAll('[data-plan-view]').forEach(b=>b.classList.toggle('active',b.dataset.planView===mode));$('districtsVisible').checked=project.settings.districtsVisible!==false;const districts=project.features.filter(f=>f.kind==='district');$('districtCount').textContent=districts.length+' 个片区';const list=$('districtList');list.replaceChildren();for(const [i,f]of districts.entries()){const b=document.createElement('button');b.className='district-item';b.dataset.districtId=f.id;b.innerHTML=`<span class="district-swatch" style="background:${f.color}">${String(i+1).padStart(2,'0')}</span><span>${escape(f.name)}</span>`;b.onclick=()=>focusDistrict(f);list.appendChild(b);}}
-function legacyRenderDistricts(){if(project.settings.districtsVisible===false)return;const mode=project.settings.planView||'detail';for(const f of project.features.filter(f=>f.kind==='district')){const chosen=f.id===selected;node('path',{d:featurePath(f,true),fill:f.color,'fill-opacity':mode==='districts'?.2:mode==='streets'?.07:.025,stroke:f.color,'stroke-opacity':mode==='detail'?.55:1,'stroke-width':(chosen?3:2)/view.scale,'stroke-dasharray':`${9/view.scale} ${5/view.scale}`,'data-id':f.id,'pointer-events':mode==='districts'?'all':'stroke'},$('districtShapes'));if(project.settings.notesVisible&&(mode!=='detail'||chosen||view.scale/fitScale<2)){const p=interiorPoint(f.points);label(f.name,p,f.color,$('districtShapes'),mode==='districts'?14:12);}}}
-function districtPropertyFields(f,isLocked){if(f.kind==='district'){const children=project.features.filter(x=>x.districtId===f.id),roads=children.filter(x=>x.kind==='road'),zones=children.filter(x=>x.kind==='zone');return `<label class="field-label">片区颜色</label><input id="districtColor" type="color" value="${f.color}"><div class="metric-box"><small>片区范围 / 内部规划</small><strong>${fmtArea(area(f.points))}</strong><span>${roads.length} 条道路 · ${zones.length} 块功能用地<br>片区边界独立编辑；下属道路和区块不会自动移动。</span></div><div class="district-actions"><button data-district-view="streets">查看内部路网</button><button data-district-view="detail">查看功能区块</button></div>`;}if(!['road','zone'].includes(f.kind)||!project.features.some(x=>x.kind==='district'))return '';return `<label class="field-label" for="featureDistrict">所属大片区</label><select id="featureDistrict" ${isLocked?'disabled':''}><option value="">未归属 / 范围外</option>${project.features.filter(x=>x.kind==='district').map(x=>`<option value="${escape(x.id)}" ${f.districtId===x.id?'selected':''}>${escape(x.name)}</option>`).join('')}</select>`;}
 // Generic layer workspace.
 function basemapUrl(){const b=project.settings.base;if(b==='none')return ''; return openedBaseImages[b]||project.basemaps.find(x=>x.id===b)?.data||(typeof BASEMAPS!=='undefined'?BASEMAPS[b]:`assets/${b==='satellite'?'satellite':'qgis'}.png`)}
 function featureVisible(f){
@@ -657,7 +638,7 @@ function activateLayer(key,source='manual',municipal=null){activeMunicipalClass=
  syncUI();render();renderProperties();document.querySelector('.right-scroll').scrollTop=0;persist();
 }
 
-function syncUI(){syncOriginControls();const s=project.settings,e=s.editor;for(const [id,key]of [['gridToggle','grid'],['snapToggle','snap'],['notesVisible','notesVisible'],['corridorsToggle','corridors']])$(id).checked=s[key];for(const key of ['zoneOpacity']){$(key).value=s[key];$(key+'Value').textContent=s[key]+'%'}$('baseSelect').innerHTML=[['none','无底图'],...(['qgis','satellite'].filter(k=>openedBaseImages[k]||(typeof BASEMAPS!=='undefined'&&BASEMAPS[k])).map(k=>[k,k==='qgis'?'QGIS 简图':'卫星底图'])),...project.basemaps.map(b=>[b.id,b.name])].map(([id,n])=>`<option value="${escape(id)}">${escape(n)}</option>`).join('');$('baseSelect').value=s.base;$('projectNotes').value=project.notes;document.querySelectorAll('[data-group]').forEach(x=>{const g=x.dataset.group;x.checked=e.groups[g]!==false&&(g!=='building'||e.layers.building.visible!==false)});document.querySelectorAll('[data-layer-key]').forEach(row=>{row.querySelector('[data-layer-visible]').checked=e.layers[row.dataset.layerKey].visible});syncMunicipalControls();document.querySelectorAll('[data-category]').forEach(b=>b.classList.toggle('active',activeLayer.key===b.dataset.category));}
+function syncUI(){syncOriginControls();const s=project.settings,e=s.editor;for(const [id,key]of [['gridToggle','grid'],['snapToggle','snap'],['notesVisible','notesVisible'],['corridorsToggle','corridors']])$(id).checked=s[key];for(const key of ['zoneOpacity']){$(key).value=s[key];$(key+'Value').textContent=s[key]+'%'}$('baseSelect').innerHTML=[['none','无底图'],...(['qgis','satellite'].filter(k=>openedBaseImages[k]||(typeof BASEMAPS!=='undefined'&&BASEMAPS[k])).map(k=>[k,k==='qgis'?'QGIS 简图':'卫星底图'])),...project.basemaps.map(b=>[b.id,b.name])].map(([id,n])=>`<option value="${escape(id)}">${escape(n)}</option>`).join('');$('baseSelect').value=s.base;document.querySelectorAll('[data-group]').forEach(x=>{const g=x.dataset.group;x.checked=e.groups[g]!==false&&(g!=='building'||e.layers.building.visible!==false)});document.querySelectorAll('[data-layer-key]').forEach(row=>{row.querySelector('[data-layer-visible]').checked=e.layers[row.dataset.layerKey].visible});syncMunicipalControls();document.querySelectorAll('[data-category]').forEach(b=>b.classList.toggle('active',activeLayer.key===b.dataset.category));}
 
 function renderDistricts(){for(const f of project.features.filter(f=>f.kind==='district'&&featureVisible(f))){const displayColor=featureDisplayColor(project,f);node('path',{d:featurePath(f,true),fill:polygonFill(f,displayColor),'fill-rule':'evenodd','fill-opacity':f.level==='small'?.09:.025,stroke:displayColor,'stroke-width':1.8/view.scale,'stroke-dasharray':`${(f.level==='small'?4:10)/view.scale} ${5/view.scale}`,'data-id':f.id},mapElement('districtShapes'));if(labelsVisibleInEditor(project,f)&&(f.level!=='tile'||f.id===selected||view.scale/fitScale>3))label(f.name,interiorPoint(f.points),displayColor,mapElement('districtShapes'),f.level==='small'?11:14)}}
 function renderMap(){renderBaseLayers();renderTerrain();for(const id of ['buildingShapes','interchangeShapes'])mapElement(id).replaceChildren();for(const f of project.features.filter(f=>['building','interchange'].includes(f.kind)&&featureVisible(f))){const color=featureDisplayColor(project,f),host=mapElement(f.kind==='building'?'buildingShapes':'interchangeShapes');if(f.assetPlacement){renderPlacedBuildingAsset(f,host,color);continue;}node(f.kind==='building'&&f.geometryType==='point'?'circle':'path',{...(f.kind==='building'&&f.geometryType==='point'?{cx:f.points[0][0],cy:f.points[0][1],r:6/view.scale}:{d:featurePath(f,true)}),fill:polygonFill(f,color),'fill-rule':'evenodd','fill-opacity':f.kind==='interchange'?.12:.55,stroke:color,'stroke-width':1.5/view.scale,'stroke-dasharray':f.kind==='interchange'?`${8/view.scale} ${4/view.scale}`:'none','data-id':f.id},host);if(labelsVisibleInEditor(project,f))label(f.name,interiorPoint(f.points),color,host,11);}
@@ -667,8 +648,6 @@ function render(){
  syncOriginControls();viewportScheduler.cancel();updateView();
  renderMap();
  renderedScale=view.scale;
- $('roadCount').textContent=`${project.features.filter(f=>f.kind==='road').length} 条`;
- $('zoneCount').textContent=`${project.features.filter(f=>f.kind==='zone').length} 个`;
  renderDraft();renderSelection();renderMasterPlan();
 }
 function renderSelection(){
@@ -704,13 +683,17 @@ function setTool(next,{keepAssetPanel=false,redraw=true}={}){
  }
  tool=next;draft=[];hover=null;snapPoint=null;selectedNode=null;
  if(next!=='select')selected=null;
- for(const [id,t]of [['selectTool','select'],['panTool','pan'],['measureTool','measure'],['zoneTool','zone'],['districtTool','district']])$(id).classList.toggle('active',next===t);
- document.querySelectorAll('.layer-row[data-road]').forEach(el=>el.classList.toggle('chosen',next==='road'&&el.dataset.road===roadType));
+ for(const [id,t]of [['selectTool','select'],['panTool','pan'],['measureTool','measure']])$(id).classList.toggle('active',next===t);
  viewport.style.cursor=next==='pan'?'grab':next==='select'?'default':'crosshair';
  $('finishBtn').disabled=true;$('cancelBtn').hidden=true;
  updateStatus();
  if(['building','interchange'].includes(next))$('toolStatus').textContent=`绘制${next==='building'?'功能建筑轮廓':'立交预留范围'} · ${next==='building'&&buildingGeometry==='point'?'1个点位':'至少3点'} · Enter完成`;
  if(redraw){render();renderProperties();}
+}
+function drawOnLayer(key){
+ if(project.settings.editor.layers[key].locked){toast('请先解锁图层');return;}
+ if(activeLayer.key!==key||activeLayer.source!=='manual')activateLayer(key);
+ beginDrawing();
 }
 function beginDrawing(){if(!project.settings.editor.layers[activeLayer.key]||activeLayer.key.startsWith('route:')||activeLayer.key.startsWith('terrain:')||activeLayer.key.startsWith('zoning:'))return;if(project.settings.editor.layers[activeLayer.key].locked){toast('请先解锁图层');return}const key=activeLayer.key;setTool(key==='road:interchange'?'interchange':key.split(':')[0]);renderProperties()}
 function finish(){const min=tool==='road'||tool==='measure'?2:tool==='building'&&buildingGeometry==='point'?1:3;if(draft.length<min)return;if(tool==='measure'){toast(fmt(length(draft)));return}if(!['road','zone','district','building','interchange'].includes(tool))return;const kind=tool,type=kind==='road'?roadType:kind==='building'?buildingType:zoneType;const f={id:crypto.randomUUID(),kind,type,name:kind==='road'?roadInfo(type).name:kind==='zone'?zoneInfo(type)[1]:kind==='district'?layerName(activeLayer.key):kind==='building'?BUILDINGS.find(b=>b[0]===type)[1]:'立交预留',notes:'',points:structuredClone(draft),source:activeLayer.source};if(kind==='road'){const style=project.settings.editor.roadStyles[type];Object.assign(f,{width:style.width,corridor:style.corridor,structure:type==='metro'?'tunnel':'ground'})}if(kind==='district')Object.assign(f,{level:districtLevel,color:project.settings.editor.layers[activeLayer.key]?.color||'#658c8b'});if(kind==='zone')f.category=zoneClass;if(kind==='building'){f.serviceLevel=buildingLevel;f.geometryType=buildingGeometry;if(buildingGeometry==='point'){f.points=f.points.slice(0,1);f.poi=[...f.points[0]];}const c=project.settings.editor.layers[activeLayer.key]?.color;if(c)f.color=c;}if(scopeId&&kind!=='interchange')f.interchangeId=scopeId;if(isPolygonFeature(f)&&area(f.points)<1){toast('多边形面积太小');return}try{
@@ -769,7 +752,7 @@ $('corridorsToggle').onchange=e=>{project.settings.corridors=e.target.checked;ch
 function openProject(){$('projectTitle').value=project.title;$('projectSummary').textContent=`${project.features.length} 个对象 · ${project.basemaps.length} 张自定义底图 · ${project.rasters.length} 张地形 / 水体`;$('projectDialog').showModal()}
 $('projectBtn').onclick=openProject;$('projectTitle').onchange=e=>{checkpoint();project.title=e.target.value.trim()||'地图工程';persist();};$('saveProjectBtn').onclick=()=>saveProject();$('saveAsProjectBtn').onclick=()=>saveProject(true);$('saveProjectTop').onclick=()=>saveProject();$('saveAsProjectTop').onclick=()=>saveProject(true);$('openProjectTop').onclick=openProjectFile;document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
 $('discardProjectChanges').onclick=()=>{if(pendingProject)installProject(pendingProject);};$('saveThenOpenProject').onclick=async()=>{const next=pendingProject;if(next&&await saveProject())installProject(next);};$('cancelProjectSwitch').onclick=()=>{pendingProject=null;$('unsavedDialog').close();};
-$('exportPngBtn').onclick=()=>{$('pngResolution').value=project.settings.editor.pngSize;$('pngLabelSize').value=project.settings.editor.labelSize;$('pngStatus').textContent='';$('pngDialog').showModal()};
+function openPngExport(){$('pngResolution').value=project.settings.editor.pngSize;$('pngLabelSize').value=project.settings.editor.labelSize;$('pngStatus').textContent='';$('pngDialog').showModal();}
 function exportStage(id,message){
  $(id).textContent=message;
  // Let the dialog paint before synchronous geometry or raster work starts.
@@ -1104,7 +1087,7 @@ $('confirmCartoExport').onclick=async()=>{
   $('cartoExportStatus').textContent=error.name==='AbortError'?'已取消导出。':'导出未完成：'+error.message;
  }finally{exportCartoBusy=false;$('confirmCartoExport').disabled=false;}
 };
-$('cartoExportPng').onclick=()=>{$('cartoExportDialog').close();$('exportPngBtn').click();};
+$('cartoExportPng').onclick=()=>{$('cartoExportDialog').close();openPngExport();};
 
 // Building catalogs contain only the footprint and the dimensions needed for planning.
 function syncAssetPanelTabs(){
@@ -1203,7 +1186,6 @@ svg.addEventListener('click',e=>{if(tool!=='asset-place'||suppressClick||space||
 svg.addEventListener('contextmenu',e=>{if(tool==='asset-place'){e.preventDefault();stopAssetPlacement();}});
 window.addEventListener('keydown',e=>{if(tool!=='asset-place'||!assetSelection||e.ctrlKey||e.metaKey||['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.querySelector('dialog[open]'))return;if(e.key.toLowerCase()==='r'){e.preventDefault();changeAssetAngle(assetSelection.rotation+(e.shiftKey?15:90));}});
 
-
 let managedPacks=new Set();
 function renderAssetManager(){
  const query=$('assetManagerSearch').value.trim().toLowerCase(),packs=project.assetPacks||[],counts=new Map();
@@ -1213,7 +1195,7 @@ function renderAssetManager(){
  updateAssetManagerSelection();
 }
 function updateAssetManagerSelection(){$('assetManagerStatus').textContent=`共 ${project.assetPacks.length} 个包，已选择 ${managedPacks.size} 个`;$('removeSelectedPacks').disabled=!managedPacks.size;}
-$('manageAssetPacks').onclick=()=>{managedPacks.clear();$('assetManagerSearch').value='';$('removePlacedWithPack').checked=false;renderAssetManager();$('assetManagerDialog').showModal();};
+function openAssetManager(){managedPacks.clear();$('assetManagerSearch').value='';$('removePlacedWithPack').checked=false;renderAssetManager();$('assetManagerDialog').showModal();}
 $('assetManagerSearch').oninput=renderAssetManager;
 $('selectUnusedPacks').onclick=()=>{const used=new Set(project.features.map(f=>f.assetPlacement?.packId));managedPacks=new Set(project.assetPacks.filter(p=>!used.has(p.id)).map(p=>p.id));renderAssetManager();};
 $('clearPackSelection').onclick=()=>{managedPacks.clear();renderAssetManager();};
@@ -1261,7 +1243,7 @@ function renderOriginControls(host,f){
  if(carto)$('copyToPlanning').onclick=()=>{try{const result=copyAsPlanning(project,f.id);checkpoint();project=result.project;activeLayer={key:layerKey(project.features.find(x=>x.id===result.selectedId)),source:'manual'};selected=result.selectedId;selectedNode=null;buildLayers();changed();toast('已复制为手绘规划，后续更新 Carto 不会覆盖此副本');}catch(error){toast(error.message);}};
  else $('planningBuilt').onchange=e=>{checkpoint(featureHistorySnapshot(project,f.id));f.planningStatus=e.target.checked?'built':'planned';changed();};
 }
-$('exportPlanning').onclick=async()=>{
+async function exportPlanningLayer(){
  if(basePlanningState)return exportVisiblePlanningWorkspace();
  if(projectSaving)return;projectSaving=true;updateSaveStatus();
  try{const planned=createPlanningProject(project);let handle=null;const name=safeProjectName().replace(/\.cs2map$/,'-手绘规划.cs2map');
@@ -1270,16 +1252,22 @@ $('exportPlanning').onclick=async()=>{
  if(handle){const writer=new ProjectFileWriter();writer.attach(handle,new Uint8Array(await (await handle.getFile()).arrayBuffer()));await writer.save(bytes);}else await download(bytes,name,'application/octet-stream');
  toast('手绘规划已单独导出；包含模型时需同时携带同名 .assets 文件夹');
  }catch(error){if(error.name!=='AbortError')toast('规划导出未完成：'+error.message);}finally{projectSaving=false;updateSaveStatus();}
-};
+}
+async function importPlanningLayer(){
+ if(projectSaving)return;
+ try{
+  const [handle]=await window.showOpenFilePicker({
+   multiple:false,types:[{description:'手绘规划工程',accept:{'application/octet-stream':['.cs2map']}}]
+  });
+  await overlayPlanningFile(await handle.getFile());
+ }catch(error){if(error.name!=='AbortError')toast('规划叠加失败：'+error.message);}
+}
 async function overlayPlanningFile(file){
  if(file.size>512*1024*1024)throw Error('规划文件超过 512 MB');const doc=await unpackProject(await file.arrayBuffer());
  const frame=doc.workspace?.planningFrame||projectMapFrame(doc.project),matched=checkPlanningFrame(project,frame);
  if(!matched&&!confirm('规划或当前工程缺少地理范围信息，将按相同地图坐标直接叠加。确认两者为同一张地图吗？'))return;
  const result=mergePlanningProject(project,doc.project,{frame});checkpoint();project=result.project;selected=null;selectedNode=null;scopeId='';setTool('select');buildLayers();changed();toast(`已叠加 ${result.count} 个规划对象，更新 ${result.replaced} 个已有规划；游戏现状保留`);
 }
-$('importPlanning').onclick=async()=>{if(projectSaving)return;try{if(window.showOpenFilePicker){const [handle]=await window.showOpenFilePicker({multiple:false,types:[{description:'手绘规划工程',accept:{'application/octet-stream':['.cs2map']}}]});await overlayPlanningFile(await handle.getFile());}else $('planningFile').click();}catch(error){if(error.name!=='AbortError')toast('规划叠加失败：'+error.message);}};
-$('planningFile').onchange=async e=>{const file=e.target.files[0];e.target.value='';if(file)try{await overlayPlanningFile(file);}catch(error){toast('规划叠加失败：'+error.message);}};
-
 
 function paintDragPreview(){
  if(!drag||!drag.moved||drag.kind==='pan')return;
@@ -1342,13 +1330,10 @@ function renderBasemapManager(){
  for(const input of $('basemapManagerList').querySelectorAll('[data-base-name]'))input.onchange=()=>{const name=input.value.trim();if(!name){input.value=project.basemaps.find(b=>b.id===input.dataset.baseName).name;return;}checkpoint();project.basemaps.find(b=>b.id===input.dataset.baseName).name=name;changed();};
  for(const button of $('basemapManagerList').querySelectorAll('[data-base-remove]'))button.onclick=()=>{checkpoint();const id=button.dataset.baseRemove;project.basemaps=project.basemaps.filter(b=>b.id!==id);if(project.settings.base===id)project.settings.base='none';changed();renderBasemapManager();toast('底图已从工程移除，可撤销恢复；原图片文件保留');};
 }
-$('manageLayers').onclick=openLayerManager;$('manageBasemaps').onclick=openBasemapManager;
 $('managerImportBasemap').onclick=()=>$('baseFile').click();
 
 for(const b of document.querySelectorAll("[data-open-layer-manager]"))b.onclick=()=>{b.closest("details").open=false;openLayerManager();};
 for(const b of document.querySelectorAll("[data-open-basemap-manager]"))b.onclick=()=>{b.closest("details").open=false;openBasemapManager();};
-
-$('openBuiltinAssets').onclick=()=>openAssetPackage('blob');
 
 $('assetPackSearch').oninput=()=>renderAssetPackages();
 $('zoneOpacitySettings').onclick=()=>{$('zoneOpacityDialog').showModal();};
@@ -2295,10 +2280,10 @@ window.mapDesktop?.onClose?.(async()=>{
 });
 if(window.mapDesktop)offerDesktopDraft().catch(()=>toast('无法读取恢复草稿'));
 
-$('aboutApp').onclick=()=>{
+function openAboutDialog(){
  $('aboutLinkStatus').hidden=true;
  $('aboutDialog').showModal();
-};
+}
 $('aboutDialog').addEventListener('click',async event=>{
  const link=event.target.closest('[data-reference]');
  if(!link||!window.mapDesktop?.openReference)return;

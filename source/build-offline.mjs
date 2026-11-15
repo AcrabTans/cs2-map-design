@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {validateProject} from './src/model.js';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const args=process.argv.slice(2),options={};
-for(let i=0;i<args.length;i+=2){if(!['--project','--output','--storage-key','--title','--save-name','--patch','--satellite'].includes(args[i])||!args[i+1])throw Error('Unsupported or incomplete build option');options[args[i]]=args[i+1];}
+for(let i=0;i<args.length;i+=2){if(!['--project','--output','--storage-key','--satellite'].includes(args[i])||!args[i+1])throw Error('Unsupported or incomplete build option');options[args[i]]=args[i+1];}
 const storageKey=options['--storage-key']||'map-design-program-v1';
 if(!/^[a-z0-9-]{1,80}$/.test(storageKey))throw Error('Invalid storage key');
 const seedDocument=options['--project']?await unpackProject(new Uint8Array(await readFile(path.resolve(root,options['--project'])))):null;
@@ -43,21 +43,15 @@ let app=(await read('src/app.js')).replace(/^import .*?;\r?\n/gm,'');
 app=app.replace("KEY='island-planner-v1'",`KEY='${storageKey}'`);
 if(seed){
  app=app.replace('let project=initialProject(),','let project=validateProject(SEED_PROJECT),');
- app=app.replace("suggestedName:'岛屿蓝图-实时.json'",`suggestedName:${JSON.stringify(options['--save-name']||'岛屿蓝图-优化初稿-实时.json')}`);
  fileStore=fileStore.replace("'island-planner-files'",`'island-planner-files-${storageKey}'`);
 }
-app=app.replaceAll('`assets/${settings.base===\'satellite\'?\'satellite\':\'qgis\'}.png`',"BASEMAPS[settings.base==='satellite'?'satellite':'qgis']");
-app=app.replaceAll('`assets/${project.settings.base===\'satellite\'?\'satellite\':\'qgis\'}.png`',"BASEMAPS[project.settings.base==='satellite'?'satellite':'qgis']");
 let html=await read('src/index.html');
 let terrainCorrection=null;try{terrainCorrection=JSON.parse(await read('config/terrain-source-correction.json'));}catch(error){if(error.code!=='ENOENT')throw error;}
 const terrainCorrectionScript=seed&&terrainCorrection?'const TERRAIN_CORRECTION='+JSON.stringify(terrainCorrection)+';\n':'';
 const seedScript=seed?`const SEED_PROJECT=${JSON.stringify(seed).replaceAll('<','\\u003c')};\n`:'';
-const patch=options['--patch']?JSON.parse(await readFile(path.resolve(root,options['--patch']),'utf8')):null;
-const patchScript=patch?`const PROJECT_PATCH=${JSON.stringify(patch).replaceAll('<','\\u003c')};\n`:'';
-html=html.replace('<link rel="stylesheet" href="style.css">',`<style>${await read('src/style.css')}</style>`).replace('href="assets/qgis.png"',`href="${images.qgis||''}"`).replace('<script type="module" src="app.js"></script>',`<script type="module">const BASEMAPS=${JSON.stringify(images)};\n${seedScript}${projectSeedExtras}${terrainCorrectionScript}${patchScript}${buildingAssetData}
+html=html.replace('<link rel="stylesheet" href="style.css">',`<style>${await read('src/style.css')}</style>`).replace('<script type="module" src="app.js"></script>',`<script type="module">const BASEMAPS=${JSON.stringify(images)};\n${seedScript}${projectSeedExtras}${terrainCorrectionScript}${buildingAssetData}
 ${tauriBridge}\n${desktopRuntime}\n${buildingAssetSource}
 ${model}\n${archiveSource}\n${projectFileSource}\n${projectFolderSource}\n${planningSource}\n${masterPlanSource}\n${localBuildingRules}\n${localPlanSource}\n${cartoExportSource}\n${networkDisplaySource}\n${networkCrossingsSource}\n${editPerformanceSource}\n${terrain}\n${carto}\n${fileStore}\n${namingSource}\n${meshoptSource}\n${cokSource}\n${extractorSource}\n${app}</script>`);
-if(seed){const title=String(options['--title']||'优化初稿 01').replace(/[<>&"']/g,'');html=html.replace('<title>岛屿蓝图 · 天际线 II 规划台</title>',`<title>岛屿蓝图 · ${title}</title>`).replace('天际线 II <small>',`${title} <small>`).replace('REVISION 02',String(seed.proposal?.revision||'本轮建议').replace(/[<>&"']/g,''));}
 const output=path.resolve(root,options['--output']||'../index.html');
 await mkdir(path.dirname(output),{recursive:true});
 await writeFile(output,html);
