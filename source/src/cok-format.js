@@ -73,10 +73,11 @@ export async function openThirdPartyCok(file){
  async function read(name){
   const entry=entries.get(name);
   if(!entry||entry.flags&1||![0,8].includes(entry.method)||entry.size>256*1024*1024||entry.compressed>256*1024*1024)throw Error('不支持的资产包条目：'+name);
-  const header=await chunk(entry.offset,30);
+  const ahead=entry.compressed<=65536?Math.min(length-entry.offset,30+entry.name.length*3+128+entry.compressed):30;
+  const header=await chunk(entry.offset,Math.max(30,ahead));
   if(header.readUInt32LE(0)!==0x04034b50)throw Error('资产包条目头无效');
-  const start=entry.offset+30+header.readUInt16LE(26)+header.readUInt16LE(28);
-  let data=await chunk(start,entry.compressed);
+  const start=30+header.readUInt16LE(26)+header.readUInt16LE(28);
+  let data=start+entry.compressed<=header.length?header.subarray(start,start+entry.compressed):await chunk(entry.offset+start,entry.compressed);
   if(entry.method===8){
    const reader=new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader(),parts=[];
    let length=0;

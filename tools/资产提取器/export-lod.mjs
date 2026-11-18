@@ -1,11 +1,35 @@
 import fs from 'node:fs';
 import {openCok,decodeGeometry} from './cok-reader.mjs';
+import {companionPrefabs,readPrefab} from './prefab-metadata.mjs';
 const [source,work,output,slug,label,...levels]=process.argv.slice(2);
 const z=openCok(source),defs=JSON.parse(fs.readFileSync(work+'/definitions.json','utf8')),names=JSON.parse(fs.readFileSync(work+'/names.json','utf8'));
 const stem=name=>name.replace(/_[a-f0-9]{30,32}\.Geometry$/,'');
 const archives=new Map([[source,z]]),indexes=new Map();
 for(const a of defs.assets)for(const m of a.meshes)if(m.geometrySource&&!archives.has(m.geometrySource))archives.set(m.geometrySource,openCok(m.geometrySource));
 for(const [file,c] of archives){const index=new Map();for(const e of c.entries.values())if(e.name.endsWith('.Geometry')){const k=stem(e.name);if(!index.has(k))index.set(k,[]);index.get(k).push({file,name:e.name});}indexes.set(file,index);}
+const peers=companionPrefabs(source).map(openCok),geometryCids=new Map(),renderLods=new Map();
+for(const archive of [z,...peers])for(const e of archive.entries.values()){
+ if(e.name.endsWith('.Geometry.cid')&&z.entries.has(e.name.slice(0,-4)))geometryCids.set(archive.read(e.name).toString().trim(),e.name.slice(0,-4));
+}
+for(const archive of [z,...peers])for(const e of archive.entries.values()){
+ if(!/_LOD[12](?: Mesh)?\.Prefab$/i.test(e.name))continue;
+ const mesh=readPrefab(archive.read(e.name)),geometry=geometryCids.get(mesh?.m_GeometryAsset?.$fstrref?.replace(/^CID:/,''));
+ if(!geometry||!mesh.name)continue;
+ if(!renderLods.has(mesh.name))renderLods.set(mesh.name,new Set());
+ renderLods.get(mesh.name).add(geometry);
+}
+for(const archive of peers)archive.close();
+function resolveLod(mesh,level){
+ const file=mesh.geometrySource||source;
+ if(file===source&&mesh.sourceModel){
+  const name=mesh.sourceModel.replace(/_LOD0(?= Mesh$|$)/i,'');
+  const sibling=/ Mesh$/i.test(name)?name.replace(/ Mesh$/i,'_'+level+' Mesh'):name+'_'+level;
+  const linked=renderLods.get(sibling);
+  if(linked?.size===1)return {file,name:[...linked][0]};
+ }
+ const matches=indexes.get(file).get(stem(mesh.geometry).replace(/_LOD0$/i,'')+'_'+level)||[];
+ return matches.length===1?matches[0]:null;
+}
 for(const level of levels){
  if(!['lod1','lod2'].includes(level))throw Error('Invalid LOD');
  const doc={asset:{version:'2.0',generator:'CS2 local asset extractor'},scene:0,scenes:[],nodes:[],meshes:[],accessors:[],bufferViews:[],buffers:[],materials:[{pbrMetallicRoughness:{baseColorFactor:[.65,.72,.74,1],metallicFactor:0,roughnessFactor:1},doubleSided:true}],extras:{format:'cs2-building-lod',version:1,packId:slug,packName:label,lod:level,units:'metres',coordinates:'right-handed Y-up; Z=-gameZ',assets:[]}};
@@ -24,8 +48,8 @@ for(const level of levels){
   const index=doc.meshes.push({name,primitives})-1;shared.set(name,index);return index;
  }
  for(const a of defs.assets){
-  const selected=a.meshes.map(m=>{const base=stem(m.geometry).replace(/_LOD0$/,''),matches=indexes.get(m.geometrySource||source).get(base+'_'+level.toUpperCase())||[];return matches.length===1?matches[0]:null;});
-  const metadata={id:a.name,code:a.name,name:names['Assets.NAME['+a.name+']']||a.name,type:a.type,lot:a.lot,maxResidents:a.maxResidents,maxEmployees:a.maxEmployees,status:selected.every(Boolean)?'available':'missing',missingMainMeshes:a.meshes.filter((_,i)=>!selected[i]).map(m=>m.geometry)};
+  const selected=a.meshes.map(m=>resolveLod(m,level.toUpperCase()));
+  const metadata={id:a.name,code:a.name,name:names['Assets.NAME['+a.name+']']||a.name,type:a.type,lot:a.lot,maxResidents:a.maxResidents,maxEmployees:a.maxEmployees,status:selected.length&&selected.every(Boolean)?'available':'missing',missingMainMeshes:a.meshes.filter((_,i)=>!selected[i]).map(m=>m.geometry)};
   const children=[];
   if(metadata.status==='available'){
    for(let i=0;i<selected.length;i++){const m=a.meshes[i],q=m.rotation,v=m.position;children.push(doc.nodes.push({mesh:await mesh(selected[i]),translation:[v[0],v[1],-v[2]],rotation:[-q[0],-q[1],q[2],q[3]]})-1);}available++;

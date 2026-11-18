@@ -23,16 +23,19 @@ def resolve_package(source):
  name=source.parent.name if source.name=='Blob.cok' and source.parent.parent.name=='Content' and source.parent.name!='Game' else source.stem.removeprefix('Blob_')
  return source,name
 
-def extract(source,output,label=None,formats=None):
+def extract(source,output,label=None,formats=None,package_id=None):
  formats=list(dict.fromkeys(formats or ['projection']))
  if any(f not in ['projection','lod1','lod2'] for f in formats):raise ValueError('导出选项无效')
  source,package_name=resolve_package(source)
- output=Path(output).resolve();output.mkdir(parents=True,exist_ok=True)
  if not source.is_file() or source.suffix.lower()!='.cok':raise ValueError('请选择 .cok 文件')
+ output=Path(output).resolve()
  # Archive entries are now read on demand; source size is not a memory allocation.
  game_data=source.parents[2] if len(source.parents)>2 else None
- if output==source.parent or (game_data and (game_data/'resources.assets').is_file() and (source.parents[3]==output or source.parents[3] in output.parents)):raise ValueError('输出目录必须在游戏目录之外')
- slug=re.sub('[^a-z0-9-]+','-',package_name.lower()).strip('-') or 'assets'
+ cache=next((parent for parent in source.parents if parent.name.lower()=='pdx_mods' and parent.parent.name=='Mods'),None)
+ if output==source.parent or (cache and output.is_relative_to(cache)) or (game_data and len(source.parents)>3 and (game_data/'resources.assets').is_file() and output.is_relative_to(source.parents[3])):raise ValueError('请将输出放在游戏和 Mod 缓存目录之外')
+ if package_id is not None and not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,79}',package_id):raise ValueError('资产包编号无效')
+ output.mkdir(parents=True,exist_ok=True)
+ slug=package_id or re.sub('[^a-z0-9-]+','-',package_name.lower()).strip('-') or 'assets'
  work=ROOT/'工作缓存'/slug;work.mkdir(parents=True,exist_ok=True);log=work/'运行日志.txt';log.write_text('',encoding='utf-8')
  with source.open('rb') as f:before=hashlib.file_digest(f,'sha256').hexdigest()
  def step(name):print(name,flush=True)
@@ -73,4 +76,4 @@ def extract(source,output,label=None,formats=None):
  print(json.dumps(result,ensure_ascii=False),flush=True)
  return result
 if __name__=='__main__':
- p=argparse.ArgumentParser(description='本地建筑资产提取：不调用 AI、不修改游戏文件');p.add_argument('source');p.add_argument('--output',default=str(DEFAULT));p.add_argument('--name');p.add_argument('--formats',nargs='+',choices=['projection','lod2','lod1'],default=['projection']);a=p.parse_args();sys.exit(0 if extract(a.source,a.output,a.name,a.formats)['ok'] else 2)
+ p=argparse.ArgumentParser(description='本地建筑资产提取：不调用 AI、不修改游戏文件');p.add_argument('source');p.add_argument('--output',default=str(DEFAULT));p.add_argument('--name');p.add_argument('--package-id');p.add_argument('--formats',nargs='+',choices=['projection','lod2','lod1'],default=['projection']);a=p.parse_args();sys.exit(0 if extract(a.source,a.output,a.name,a.formats,a.package_id)['ok'] else 2)

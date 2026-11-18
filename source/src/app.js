@@ -1,3 +1,5 @@
+import {bindAssetExtractor} from './asset-extractor-panel.js';
+import {bindMapThreeView} from './view-3d.js';
 import './tauri-bridge.js';
 import {NAME_STYLES,NAME_TYPES,nameCandidates,drawNames} from './name-generator.js';
 import {installDesktopPickers,desktopFile,lightHistorySnapshot,restoreHistorySnapshot,featureHistorySnapshot,restoreFeatureHistory} from './desktop-runtime.js';
@@ -35,6 +37,7 @@ const renderCrossingCache=createCrossingCache(buildNetworkCrossings);
 function invalidateEditGeometry(){snapIndex=null;assetSnapIndex=null;roadSegmentIndex=null;renderCrossingCache.invalidate();}
 let networkJunctions=[],networkMaskBounds={x:0,y:0,width:SIZE,height:SIZE};
 let assetCatalogQuery='',assetCatalogCategory='all',assetCatalogIndex=0;
+const assetCount=new Intl.NumberFormat('zh-CN');
 let assetPanelMode='properties',assetPackId=null,assetSelection=null,assetHover=null,assetRepeat=true;
 let activeLayer={key:'road:arterial',source:'manual'},districtLevel='large',buildingType='education',buildingLevel='基层',buildingGeometry='polygon',zoneClass='residential',scopeId='',listQuery='',exporting=false;
 let view={cx:SIZE/2,cy:SIZE/2,scale:1},fitScale=1;
@@ -1094,10 +1097,25 @@ function syncAssetPanelTabs(){
  if(!$('assetsTab'))return;const assets=assetPanelMode==='assets';$('assetsTab').setAttribute('aria-selected',String(assets));$('propertiesTab').setAttribute('aria-selected',String(!assets));$('inspectorHeading').textContent=assets?'建筑资产':'图层属性与对象';
 }
 function renderAssetPackages(){
- const host=$('assetPackageList');if(!host)return;const packs=buildingPacksFor(project);$('assetLibraryCount').textContent=packs.reduce((n,p)=>n+p.assets.length,0)+' 栋';
- const query=($('assetPackSearch')?.value||'').trim().toLowerCase(),visible=packs.filter(p=>(p.name+' '+(p.dlc||'')).toLowerCase().includes(query));
- const packRow=p=>`<button class="asset-package ${assetPanelMode==='assets'&&assetPackId===p.id?'active':''}" data-pack-index="${packs.indexOf(p)}" aria-pressed="${assetPanelMode==='assets'&&assetPackId===p.id}" title="${escape(p.name)}"><span>${escape(p.name)}</span><small>${p.assets.length}</small></button>`;
- host.innerHTML=visible.filter(p=>p.id==='blob').map(packRow).join('')+[['dlc','内置 DLC'],['official','官方资产包'],['third-party','第三方资产包']].map(([group,title])=>{const list=visible.filter(p=>p.id!=='blob'&&(p.builtinGroup==='dlc'?'dlc':p.builtinGroup==='official'||p.assetGroup==='official'?'official':'third-party')===group);return `<details class="asset-pack-fold" data-asset-group="${group}" ${!closedAssetGroups.has(group)||query?'open':''}><summary>${title}<small>${list.length} 包</small></summary><div>${list.map(packRow).join('')||'<p class="asset-empty">暂无资产包</p>'}</div></details>`;}).join('');
+ const host=$('assetPackageList');if(!host)return;
+ const packs=buildingPacksFor(project),query=$('assetPackSearch').value.trim().toLowerCase();
+ const total=items=>items.reduce((n,pack)=>n+pack.assets.length,0);
+ $('assetLibraryCount').textContent=assetCount.format(total(packs))+' 栋';
+ const groups={base:[],dlc:[],official:[],'third-party':[]};
+ for(const [index,pack] of packs.entries()){
+  if(query&&!(pack.name+' '+(pack.dlc||'')).toLowerCase().includes(query))continue;
+  const group=pack.id==='blob'?'base':pack.builtinGroup==='dlc'?'dlc':
+   pack.builtinGroup==='official'||pack.assetGroup==='official'?'official':'third-party';
+  groups[group].push({pack,index});
+ }
+ const packRow=({pack,index})=>{
+  const active=assetPanelMode==='assets'&&assetPackId===pack.id;
+  return `<button class="asset-package ${active?'active':''}" data-pack-index="${index}" aria-pressed="${active}" title="${escape(pack.name)}"><span>${escape(pack.name)}</span><small>${assetCount.format(pack.assets.length)} 栋</small></button>`;
+ };
+ host.innerHTML=groups.base.map(packRow).join('')+[['dlc','内置 DLC'],['official','官方资产包'],['third-party','第三方资产包']].map(([group,title])=>{
+  const list=groups[group],count=list.reduce((n,{pack})=>n+pack.assets.length,0);
+  return `<details class="asset-pack-fold" data-asset-group="${group}" ${!closedAssetGroups.has(group)||query?'open':''}><summary>${title}<small>${list.length} 包 · ${assetCount.format(count)} 栋</small></summary><div>${list.map(packRow).join('')||'<p class="asset-empty">暂无资产包</p>'}</div></details>`;
+ }).join('');
  for(const fold of host.querySelectorAll('[data-asset-group]'))fold.ontoggle=()=>{if(query)return;if(fold.open)closedAssetGroups.delete(fold.dataset.assetGroup);else closedAssetGroups.add(fold.dataset.assetGroup);};
  for(const b of host.querySelectorAll('[data-pack-index]'))b.onclick=()=>openAssetPackage(packs[Number(b.dataset.packIndex)].id);
 }
@@ -1177,7 +1195,19 @@ function renderPlacedAssetProperties(host,f){
 $('assetsTab').onclick=()=>{if(tool!=='asset-place'){selected=null;selectedNode=null;assetPanelMode='assets';renderSelection();}renderAssetPackages();renderProperties();};
 $('propertiesTab').onclick=()=>{setTool('select');renderAssetPackages();};
 $('importBuildingLibrary').onclick=async()=>{if(window.mapDesktop){const info=await window.mapDesktop.pick('assets');if(info)await importChosenAssets(info.map(desktopFile));}else $('buildingLibraryFile').click();};
-async function importChosenAssets(files){if(!files.length)return;try{const packs=await readAssetSelection(files),next=structuredClone(project),merged=new Map((next.assetPacks||[]).map(p=>[p.id,p]));for(const p of packs)merged.set(p.id,{...p,assetGroup:p.assetGroup==='official'?'official':'third-party'});next.assetPacks=[...merged.values()];const valid=prepareEditor(next);checkpoint();project=valid;changed();openAssetPackage(packs[0].id);toast(`已导入 ${packs.length} 个资产包，${packs.reduce((n,p)=>n+p.assets.length,0)} 栋建筑`);}catch(error){toast(error.message);}$('buildingLibraryFile').value='';}
+function installBuildingPacks(packs){
+ const merged=new Map((project.assetPacks||[]).map(pack=>[pack.id,pack]));
+ for(const pack of packs)merged.set(pack.id,{...pack,assetGroup:pack.assetGroup==='official'?'official':'third-party'});
+ const valid=prepareEditor({...project,assetPacks:[...merged.values()]});
+ checkpoint();project=valid;changed();openAssetPackage(packs[0].id);
+ return `已导入 ${packs.length} 个资产包，${packs.reduce((n,p)=>n+p.assets.length,0)} 栋建筑`;
+}
+async function importChosenAssets(files){
+ if(!files.length)return;
+ try{toast(installBuildingPacks(await readAssetSelection(files)));}
+ catch(error){toast(error.message);}
+ $('buildingLibraryFile').value='';
+}
 $('buildingLibraryFile').onchange=e=>importChosenAssets([...e.target.files]);
 const assetPreviewScheduler=createEditScheduler(renderAssetPreview);
 svg.addEventListener('pointermove',e=>{if(tool==='asset-place'&&!drag){assetHover=assetHoverPoint(e);assetPreviewScheduler.schedule();}});
@@ -2293,61 +2323,16 @@ $('aboutDialog').addEventListener('click',async event=>{
  catch(error){$('aboutLinkStatus').textContent=error.message||String(error);$('aboutLinkStatus').hidden=false;}
 });
 
-if(window.mapDesktop?.assetCodecs){
- const dialog=$('assetExtractorDialog'),open=$('openAssetExtractor');
- const start=$('extractorStart'),progress=$('extractorProgress'),status=$('extractorStatus'),results=$('extractorResults');
- const pickFiles=$('extractorPickFiles'),pickFolder=$('extractorPickFolder'),pickOutput=$('extractorPickOutput');
- const close=dialog.querySelector('[data-close]');
- const cokFile=info=>info.kind==='file'&&/\.cok$/i.test(info.name);
- let files=[],destination=null,busy=false;
- function refreshExtractor(){
-  for(const button of [pickFiles,pickFolder,pickOutput,close])button.disabled=busy;
-  start.disabled=busy||!files.length||!destination;
-  $('extractorSources').textContent=files.length===1?files[0].name:files.length?files.length+' 个资产包':'未选择资产包';
-  $('extractorDestination').textContent=destination?.name||'未选择输出文件夹';
- }
- async function chooseExtractor(action){
-  busy=true;refreshExtractor();
-  try{await action();}
-  catch(error){status.textContent=String(error.message||error);}
-  finally{busy=false;refreshExtractor();}
- }
- open.onclick=()=>{refreshExtractor();dialog.showModal();};
- dialog.addEventListener('cancel',event=>{if(busy)event.preventDefault();});
- pickFiles.onclick=()=>chooseExtractor(async()=>{
-  const selected=await window.mapDesktop.pick('cok');
-  if(selected)files=selected.filter(cokFile);
- });
- pickFolder.onclick=()=>chooseExtractor(async()=>{
-  const folder=await window.mapDesktop.pick('directory');
-  if(!folder)return;
-  files=(await window.mapDesktop.entries(folder.id)).filter(cokFile).sort((a,b)=>a.name.localeCompare(b.name,'zh'));
-  status.textContent=files.length?'只处理所选文件夹中的 .cok 文件。':'这个文件夹里没有 .cok 文件。';
- });
- pickOutput.onclick=()=>chooseExtractor(async()=>{destination=await window.mapDesktop.pick('directory')||destination;});
- start.onclick=async()=>{
-  busy=true;refreshExtractor();results.replaceChildren();
-  progress.max=files.length;progress.value=0;
-  let succeeded=0,buildings=0;
-  try{
-   for(const [index,info] of files.entries()){
-    status.textContent=`正在读取 ${index+1}/${files.length} · ${info.name}`;
-    const result=document.createElement('li');
-    try{
-     const output=await extractCokLibrary(desktopFile(info),window.mapDesktop.assetCodecs,(done,total)=>{
-      progress.value=index+done/total;
-      status.textContent=`正在提取 ${index+1}/${files.length} · 建筑 ${done}/${total} · ${info.name}`;
-     });
-     const name=await window.mapDesktop.writeExtractedAsset(destination.id,output.name,JSON.stringify(output.library));
-     result.textContent=`${name} · ${output.count} 个建筑`;
-     succeeded++;buildings+=output.count;
-    }catch(error){
-     result.textContent=`${info.name} · ${error.message||error}`;result.className='extractor-error';
-    }
-    results.append(result);progress.value=index+1;
-   }
-   status.textContent=`已导出 ${succeeded}/${files.length} 个资产包，共 ${buildings} 个建筑。`+
-     (succeeded?' 可从“资产 → 导入建筑资产包”导入。':'');
-  }finally{busy=false;refreshExtractor();}
- };
-}
+const registerMapLods=bindMapThreeView({
+ async snapshot(){
+  await ensureTerrainFiles();
+  return {project,raw:activeTerrainFiles(),features:project.features.filter(featureVisible)};
+ },
+ selection:getSelected,
+ toast
+});
+bindAssetExtractor(window.mapDesktop,(packs,models)=>{
+ const message=installBuildingPacks(packs);
+ const loaded=models.length?registerMapLods(models,packs):0;
+ toast(message+(loaded?'，已载入 '+loaded+' 组 3D 模型':''));
+});

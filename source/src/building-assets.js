@@ -2,7 +2,7 @@ import {BUILTIN_BUILDING_PACKS} from './building-asset-data.js';
 const buildingAssetTypes=['education','residential','hospital','police','fire','municipal','industry','commercial','sports','landscape','other'];
 const validPopulationCapacity=v=>v===undefined||v===null||(Number.isSafeInteger(v)&&v>=0);
 export function validateBuildingPacks(packs=[]){
- if(!Array.isArray(packs)||packs.length>100)throw Error('建筑资产包数量无效');
+ if(!Array.isArray(packs)||packs.length>20000)throw Error('建筑资产包数量无效');
  const ids=new Set();let total=0,vertices=0;
  for(const p of packs){
   if(!p||typeof p.id!=='string'||!p.id||p.id.length>100||ids.has(p.id)||typeof p.name!=='string'||!p.name.trim()||p.name.length>300||!Array.isArray(p.assets)||!p.assets.length)throw Error('建筑资产包信息无效');ids.add(p.id);const assetIds=new Set();

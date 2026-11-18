@@ -70,7 +70,10 @@ def main():
     shutil.copy2(REPO / 'CHANGELOG.md', target / 'CHANGELOG.md')
     shutil.copy2(REPO / 'THIRD_PARTY_NOTICES.md', target / 'THIRD_PARTY_NOTICES.md')
     copy_dependency_notices(args.cargo_cache, target / 'licenses')
+    (target / 'licenses').mkdir(exist_ok=True)
+    shutil.copy2(SOURCE / 'src/vendor/three-LICENSE.txt', target / 'licenses/three-LICENSE.txt')
     (target / 'projects').mkdir()
+    (target / 'lod').mkdir()
     (target / 'release.json').write_text(json.dumps({
         'version': version, 'platform': 'win32-x64', 'desktop': 'Tauri',
         'webview2': 'system', 'builtInProjections': 6280,

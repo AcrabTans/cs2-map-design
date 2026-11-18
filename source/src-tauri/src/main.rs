@@ -75,6 +75,7 @@ fn main() {
             let launch = (|| -> Result<(), Box<dyn std::error::Error>> {
                 let executable = std::env::current_exe()?;
                 let directory = executable.parent().ok_or("无法定位程序目录")?;
+                let _ = std::fs::create_dir(directory.join("lod"));
                 let data = directory.join("userdata").join("webview");
                 std::fs::create_dir_all(&data)?;
                 tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
@@ -90,7 +91,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             files::pick_files, files::pick_directory, files::pick_save, files::file_stat,
-            files::read_file, files::write_file, files::directory_entries, files::directory_child,
+            files::read_file, files::write_file, files::directory_entries, files::asset_cache_authors, files::directory_child,
+            files::preset_lod_files,
             files::write_extracted_asset, asset_geometry::asset_zstd, asset_geometry::asset_project,
             update_title, toggle_fullscreen, confirm_discard, exit_app, enable_close_guard, open_reference
         ])

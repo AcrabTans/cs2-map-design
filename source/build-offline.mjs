@@ -38,6 +38,12 @@ let fileStore=(await read('src/file-store.js')).replace(/^export /gm,'');
 const meshoptSource=(await read('../tools/资产提取器/依赖/vendor/meshopt_decoder.mjs')).replace(/^export .*?;\r?\n/gm,'');
 const cokSource=(await read('src/cok-format.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
 const extractorSource=(await read('src/asset-extractor.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
+const cokLodSource=(await read('src/cok-lod.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
+const modCatalogSource=(await read('src/mod-catalog.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
+const extractorPanelSource=(await read('src/asset-extractor-panel.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
+const lodGlbSource=(await read('src/lod-glb.js')).replace(/^export /gm,'');
+const view3dSource=(await read('src/view-3d.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
+const threeSource=JSON.stringify(await read('src/vendor/three.module.min.js')).replaceAll('<','\\u003c');
 const namingSource=(await read('src/name-generator.js')).replace(/^export /gm,'');
 let app=(await read('src/app.js')).replace(/^import .*?;\r?\n/gm,'');
 app=app.replace("KEY='island-planner-v1'",`KEY='${storageKey}'`);
@@ -49,9 +55,9 @@ let html=await read('src/index.html');
 let terrainCorrection=null;try{terrainCorrection=JSON.parse(await read('config/terrain-source-correction.json'));}catch(error){if(error.code!=='ENOENT')throw error;}
 const terrainCorrectionScript=seed&&terrainCorrection?'const TERRAIN_CORRECTION='+JSON.stringify(terrainCorrection)+';\n':'';
 const seedScript=seed?`const SEED_PROJECT=${JSON.stringify(seed).replaceAll('<','\\u003c')};\n`:'';
-html=html.replace('<link rel="stylesheet" href="style.css">',`<style>${await read('src/style.css')}</style>`).replace('<script type="module" src="app.js"></script>',`<script type="module">const BASEMAPS=${JSON.stringify(images)};\n${seedScript}${projectSeedExtras}${terrainCorrectionScript}${buildingAssetData}
+html=html.replace('<link rel="stylesheet" href="style.css">',`<style>${await read('src/style.css')}</style>`).replace('<script type="module" src="app.js"></script>',()=>`<script type="module">const BASEMAPS=${JSON.stringify(images)};\nconst THREE_SOURCE=${threeSource};\n${seedScript}${projectSeedExtras}${terrainCorrectionScript}${buildingAssetData}
 ${tauriBridge}\n${desktopRuntime}\n${buildingAssetSource}
-${model}\n${archiveSource}\n${projectFileSource}\n${projectFolderSource}\n${planningSource}\n${masterPlanSource}\n${localBuildingRules}\n${localPlanSource}\n${cartoExportSource}\n${networkDisplaySource}\n${networkCrossingsSource}\n${editPerformanceSource}\n${terrain}\n${carto}\n${fileStore}\n${namingSource}\n${meshoptSource}\n${cokSource}\n${extractorSource}\n${app}</script>`);
+${model}\n${archiveSource}\n${projectFileSource}\n${projectFolderSource}\n${planningSource}\n${masterPlanSource}\n${localBuildingRules}\n${localPlanSource}\n${cartoExportSource}\n${networkDisplaySource}\n${networkCrossingsSource}\n${editPerformanceSource}\n${terrain}\n${carto}\n${fileStore}\n${namingSource}\n${meshoptSource}\n${cokSource}\n${cokLodSource}\n${extractorSource}\n${modCatalogSource}\n${extractorPanelSource}\n${lodGlbSource}\n${view3dSource}\n${app}</script>`);
 const output=path.resolve(root,options['--output']||'../index.html');
 await mkdir(path.dirname(output),{recursive:true});
 await writeFile(output,html);

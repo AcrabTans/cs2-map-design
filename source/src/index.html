@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#142d32"><title>天际线Ⅱ地图规划设计器 · 绿色版</title><link rel="stylesheet" href="style.css"></head><body>
-<header class="topbar"><div class="brand"><span class="brand-icon">◈</span><div><strong>天际线Ⅱ地图规划设计器</strong><span>MAP DESIGN STUDIO</span></div><i></i><span class="project"><small>14.336 × 14.336 km</small></span></div><div class="top-actions"><details class="web-layer-menu"><summary>工具</summary><div><button id="openPlanningTools" aria-controls="planningPanel">规划工具</button><button id="openNamingTool">取名工具</button><button id="openAssetExtractor" hidden>资产提取</button></div></details><details class="web-layer-menu web-view-menu"><summary>编辑</summary><div><button id="toggleInspector" aria-controls="rightPanel" aria-expanded="true">隐藏右栏</button><label class="check-row"><input id="gridToggle" type="checkbox">显示 500 m 参考网格</label><label class="check-row"><input id="snapToggle" type="checkbox">断点 / 节点吸附</label><label class="check-row"><input id="notesVisible" type="checkbox">显示名称与标签</label><label class="check-row"><input id="corridorsToggle" type="checkbox">显示路网预留走廊</label></div></details><details class="web-layer-menu"><summary>图层</summary><div><button data-open-layer-manager>图层管理</button><button data-open-basemap-manager>底图管理</button><button id="zoneOpacitySettings">区块透明度</button></div></details><span id="currentProjectLabel" class="current-project-label" aria-live="polite"></span><button id="openProjectFolderTop">打开项目文件夹</button><button id="openProjectTop">打开工程</button><button id="saveProjectTop">保存</button><button id="saveAsProjectTop">另存为</button><button id="projectBtn">工程</button><button id="cartoFolderBtn" title="导入 Carto 文件夹">导入</button><button id="exportCartoBtn" class="primary">导出</button><button id="helpBtn" title="操作说明">?</button></div></header>
+<header class="topbar"><div class="brand"><span class="brand-icon">◈</span><div><strong>天际线Ⅱ地图规划设计器</strong><span>MAP DESIGN STUDIO</span></div><i></i><span class="project"><small>14.336 × 14.336 km</small></span></div><div class="top-actions"><details class="web-layer-menu"><summary>工具</summary><div><button id="openPlanningTools" aria-controls="planningPanel">规划工具</button><button id="openNamingTool">取名工具</button><button id="openThreeView">3D 视图</button><button id="openAssetExtractor" hidden>资产提取</button></div></details><details class="web-layer-menu web-view-menu"><summary>编辑</summary><div><button id="toggleInspector" aria-controls="rightPanel" aria-expanded="true">隐藏右栏</button><label class="check-row"><input id="gridToggle" type="checkbox">显示 500 m 参考网格</label><label class="check-row"><input id="snapToggle" type="checkbox">断点 / 节点吸附</label><label class="check-row"><input id="notesVisible" type="checkbox">显示名称与标签</label><label class="check-row"><input id="corridorsToggle" type="checkbox">显示路网预留走廊</label></div></details><details class="web-layer-menu"><summary>图层</summary><div><button data-open-layer-manager>图层管理</button><button data-open-basemap-manager>底图管理</button><button id="zoneOpacitySettings">区块透明度</button></div></details><span id="currentProjectLabel" class="current-project-label" aria-live="polite"></span><button id="openProjectFolderTop">打开项目文件夹</button><button id="openProjectTop">打开工程</button><button id="saveProjectTop">保存</button><button id="saveAsProjectTop">另存为</button><button id="projectBtn">工程</button><button id="cartoFolderBtn" title="导入 Carto 文件夹">导入</button><button id="exportCartoBtn" class="primary">导出</button><button id="helpBtn" title="操作说明">?</button></div></header>
 <main class="workspace"><aside class="left-panel panel"><div class="panel-heading editor-tools" role="toolbar" aria-label="绘图工具"><button id="selectTool" class="active" title="选择与编辑 (V)" aria-label="选择"><span class="tool-icon">↖</span><span class="tool-label">选择</span></button><button id="panTool" title="平移 (H)" aria-label="平移"><span class="tool-icon">✥</span><span class="tool-label">平移</span></button><button id="measureTool" title="测量 (M)" aria-label="测距"><span class="tool-icon">⌁</span><span class="tool-label">测距</span></button><button id="undoBtn" class="history-tool" title="撤销 Ctrl+Z" aria-label="撤销">↶</button><button id="redoBtn" class="history-tool" title="恢复 Ctrl+Shift+Z" aria-label="恢复">↷</button></div><div class="left-scroll"><section id="planWorkspacePanel" hidden>
  <div class="section-title">独立规划工作区</div>
  <p id="planWorkspaceInfo" class="muted"></p>
@@ -106,18 +106,48 @@
 <dialog id="pngDialog"><div class="dialog-header"><span class="eyebrow">EXPORT MAP</span><button data-close="pngDialog" aria-label="关闭导出设置">×</button></div><h2>导出整张地图</h2><p class="muted">导出当前可见的底图和图层，始终覆盖完整 14.336 × 14.336 km；不含选中框、节点和界面。</p><label class="field-label" for="pngResolution">PNG 分辨率</label><select id="pngResolution"><option value="2048">2048 × 2048</option><option value="4096">4096 × 4096</option><option value="8192">8192 × 8192</option></select><label class="field-label" for="pngLabelSize">图中文字大小（px）</label><input id="pngLabelSize" type="number" min="8" max="24" value="11"><div class="dialog-actions"><button id="confirmPngBtn" class="primary">导出 PNG</button></div><p id="pngStatus" class="muted" role="status"></p></dialog>
 <dialog id="networkDialog"><div class="dialog-header"><span class="eyebrow">NETWORK SETTINGS</span><button data-close="networkDialog" aria-label="关闭路网设定">×</button></div><h2>路网属性与设定</h2><p class="muted">地面、高架／桥梁、隧道使用同一色系；地面无描边，高架和隧道带两侧边线。新路宽仅影响之后绘制的道路，现有道路按各自路宽显示。</p><div id="roadDefaults"></div><div class="structure-filters" id="structureFilters"></div><div class="dialog-actions"><button id="saveNetworkSettings" class="primary">保存设定</button></div></dialog>
 <dialog id="assetExtractorDialog">
-<div class="dialog-header"><h2>第三方资产提取</h2><button data-close="assetExtractorDialog" aria-label="关闭资产提取">×</button></div>
-<p>每个 .cok 输出一个 .cs2assets 文件，保留建筑二维轮廓、占地、高度和来源编号。</p>
-<div class="extractor-row"><button id="extractorPickFiles">选择 .cok 文件</button><button id="extractorPickFolder">选择文件夹</button><span id="extractorSources">未选择资产包</span></div>
-<div class="extractor-row"><button id="extractorPickOutput">选择输出文件夹</button><span id="extractorDestination">未选择输出文件夹</span></div>
-<div class="extractor-row"><button id="extractorStart" class="primary" disabled>开始提取</button><progress id="extractorProgress" value="0" max="1" aria-label="提取进度"></progress></div>
-<p id="extractorStatus" role="status">只处理模型与建筑定义均在包内的第三方资产。</p>
-<ul id="extractorResults"></ul>
+<div class="dialog-header"><h2>资产提取</h2><button data-close="assetExtractorDialog" aria-label="关闭资产提取">×</button></div>
+<div class="extractor-row extractor-commands"><button id="extractorPickFolder">扫描 Mod 文件夹</button><button id="extractorPickFiles">选择 .cok 文件</button><button id="extractorPickOutput">选择输出文件夹</button><span id="extractorDestination">未选择输出文件夹</span></div>
+<div class="extractor-row extractor-filters">
+ <input id="extractorSearch" type="search" aria-label="搜索扫描结果" placeholder="搜索名称、作者、资产或 Mod 编号">
+ <select id="extractorFilter" aria-label="筛选类型"><option value="">全部类型</option><option value="building">建筑资产</option><option value="ready">可提取建筑包</option><option value="other">其他资产</option><option value="code">代码 Mod</option><option value="unidentified">其他 / 读取失败</option></select>
+ <select id="extractorAuthorFilter" aria-label="筛选作者"><option value="">全部作者</option></select>
+ <button id="extractorCheckAll" disabled>勾选当前结果</button><button id="extractorClear" disabled>清空勾选</button><span id="extractorSelected" aria-live="polite"></span>
+</div>
+<div class="extractor-table"><table><colgroup><col class="extractor-col-check"><col><col class="extractor-col-author"><col class="extractor-col-type"><col class="extractor-col-count"><col class="extractor-col-mod"><col class="extractor-col-size"></colgroup><thead><tr><th scope="col">选</th><th scope="col">名称</th><th scope="col">作者</th><th scope="col">类型</th><th scope="col">建筑数</th><th scope="col">Mod / 版本</th><th scope="col">包大小</th></tr></thead><tbody id="extractorCatalog"></tbody></table></div>
+<div class="extractor-info">
+ <section><h3>包内资产</h3><div id="extractorDetails"></div></section>
+ <section><h3>提取结果</h3><ul id="extractorResults"></ul></section>
+</div>
+<div class="extractor-row extractor-actions">
+ <label><input type="checkbox" value="projection" data-extractor-format checked> 二维投影</label>
+ <label><input type="checkbox" value="lod2" data-extractor-format> LOD2</label>
+ <label><input type="checkbox" value="lod1" data-extractor-format> LOD1</label>
+ <select id="extractorExportMode" aria-label="输出方式"><option value="separate">按包分别输出</option><option value="merged">按格式合并输出</option></select>
+ <progress id="extractorProgress" value="0" max="1" aria-label="扫描和提取进度"></progress><button id="extractorStart" disabled>提取所选资产包</button><button id="extractorImport" class="primary" title="导入二维资产到当前地图的建筑资产库，并为本次运行载入所选 LOD" disabled>导入到地图</button>
+</div>
+<p id="extractorStatus" role="status">扫描本地缓存，按 Mod 编号显示最高版本。</p>
 </dialog>
 <dialog id="namingDialog"><div class="dialog-header"><h2>取名工具</h2><button data-close="namingDialog" aria-label="关闭取名工具">×</button></div><div class="naming-controls"><label>地区风格<select id="namingStyle"></select></label><label>对象类型<select id="namingType"></select></label><label>语言<select id="namingLanguage"><option value="both">中英对照</option><option value="zh">中文</option><option value="en">英文／拉丁字母</option></select></label><label>每批数量<select id="namingCount"><option selected>16</option><option>32</option><option>64</option></select></label></div><div class="naming-actions"><button class="primary" id="generateNames">换一批</button><button id="copyNameBatch">复制本批</button><button id="toggleNamingLibrary" aria-pressed="false">查看全部</button><span id="namingCountInfo" aria-live="polite"></span></div><div id="namingLibraryTools" class="naming-library-tools" hidden><input id="namingSearch" type="search" placeholder="搜索当前候选名称" aria-label="搜索名称"><button id="namingPrevPage">上一页</button><label>第 <input id="namingPage" type="number" min="1" value="1" aria-label="页码"> 页</label><span id="namingPageTotal"></span><button id="namingNextPage">下一页</button></div><div id="namingStatus" aria-live="polite"></div><ul id="namingResults"></ul></dialog>
+<dialog id="threeDialog">
+ <div class="dialog-header"><h2>3D 视图</h2><button data-close="threeDialog" aria-label="关闭 3D 视图">×</button></div>
+ <div class="three-controls">
+  <label><input type="checkbox" data-three-layer="terrain" checked> 地形</label>
+  <label><input type="checkbox" data-three-layer="water" checked> 水体</label>
+  <label><input type="checkbox" data-three-layer="roads" checked> 道路</label>
+  <label><input type="checkbox" data-three-layer="buildings" checked> 建筑</label>
+  <label><input type="checkbox" data-three-layer="areas"> 片区</label>
+  <select id="threeQuality" aria-label="建筑模型精度"><option value="auto">自动 LOD</option><option value="lod1">优先 LOD1</option><option value="lod2">优先 LOD2</option><option value="blocks">二维轮廓体块</option></select>
+  <button id="threeLoadLod" title="为本次运行加载与投影资产包匹配的模型">加载 LOD 文件</button>
+  <input id="threeLodFiles" type="file" accept=".glb" multiple hidden>
+  <button id="threeReset">全图</button><button id="threeFocus">定位选中对象</button>
+ </div>
+ <div id="threeHost" aria-label="三维地图"></div>
+ <div><div class="three-footer"><span class="muted">左键拖动旋转 · 右键拖动平移 · 滚轮缩放</span><span id="threePresetStatus" class="muted"></span></div><p id="threeStatus" role="status"></p></div>
+</dialog>
 <dialog id="aboutDialog" class="reference-dialog" aria-labelledby="aboutTitle">
  <div class="dialog-header"><h2 id="aboutTitle">关于地图规划设计器</h2><button data-close="aboutDialog" aria-label="关闭关于">×</button></div>
- <div class="about-identity"><span class="brand-icon" aria-hidden="true">◈</span><div><strong>天际线Ⅱ地图规划设计器</strong><div>v0.6.0 · Windows x64 · Tauri 绿色版</div></div></div>
+ <div class="about-identity"><span class="brand-icon" aria-hidden="true">◈</span><div><strong>天际线Ⅱ地图规划设计器</strong><div>v0.7.0 · Windows x64 · Tauri 绿色版</div></div></div>
  <p>本项目采用许愿式编程。为《Cities: Skylines II》玩家提供二维地图规划、工程管理和游戏内建设参考。</p>
  <dl class="about-notices">
   <dt>独立社区项目</dt><dd>本工具由社区维护，与 Colossal Order、Paradox Interactive 无官方隶属或合作关系。</dd>
@@ -156,7 +186,7 @@
   <summary>摆放建筑、提取资产和取名</summary>
   <ul>
    <li>从左侧建筑资产库打开资产包，在右侧选建筑，单击地图摆放。<kbd>R</kbd> 旋转 90°，<kbd>Shift</kbd> + <kbd>R</kbd> 旋转 15°，右键取消本次选择。</li>
-   <li>在「工具 → 资产提取」选第三方 <code>.cok</code> 或文件夹，再选输出文件夹。模型和定义都在包内时，可提取二维 <code>.cs2assets</code>。从「资产 → 导入建筑资产包」把结果加入当前工程。</li>
+   <li>在「工具 → 资产提取」扫描 <code>pdx_mods</code> 或选择 <code>.cok</code> 文件，勾选资产包、选择输出目录和格式，可按包分别输出或按格式合并。二维 <code>.cs2assets</code> 可导入工程，LOD1 和 LOD2 <code>.glb</code> 可在「工具 → 3D 视图」加载。</li>
    <li>在「工具 → 取名工具」选择风格、对象和语言，每批可生成 16、32 或 64 个名称。「查看全部」支持搜索和翻页，可复制或应用到选中的对象。</li>
   </ul>
  </details>

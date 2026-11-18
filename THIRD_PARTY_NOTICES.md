@@ -4,4 +4,6 @@
 
 发布目录的 `licenses/README.md` 索引列出组件版本、原始文件名与许可原文。内容相同的许可文件共享一份副本。项目程序采用根目录 `LICENSE` 所示的 MIT 许可。随程序提供的本体、DLC 和官方地区包二维投影来自游戏资产。
 
+3D 视图使用 Three.js，采用 MIT 许可。许可原文见 `licenses/three-LICENSE.txt` 或[源码副本](source/src/vendor/three-LICENSE.txt)。
+
 桌面资产提取使用 Meshoptimizer、Zstandard 和 GEOS。组件来源与许可见发布目录的 `asset-codecs`。独立提取工具见 `tools/资产提取器`。
