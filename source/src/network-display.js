@@ -29,3 +29,30 @@ export function createViewportScheduler(update,rebuild,{frame=requestAnimationFr
  const cancel=()=>{if(pending!==null)cancelFrame(pending);if(idle!==null)cancelLater(idle);pending=idle=null;};
  return {schedule(){if(pending===null)pending=frame(()=>{pending=null;update();});if(idle!==null)cancelLater(idle);idle=later(()=>{idle=null;if(pending!==null){cancelFrame(pending);pending=null;update();}rebuild();},delay);},cancel};
 }
+
+export function wheelZoomFactor(delta,mode=0,pageHeight=800){
+ return Math.exp(-delta*(mode===1?16:mode===2?pageHeight:1)*.0015);
+}
+
+// Accumulate wheel input independently of display refresh rate. Keep the map
+// point under the pointer fixed throughout the animation, including reversals.
+export function createZoomAnimator(read,apply,limits,{frame=requestAnimationFrame,cancelFrame=cancelAnimationFrame,now=()=>performance.now(),duration=65}={}){
+ let pending=null,target=null,focus=null,offset=null,last=0,direction=0;
+ const cancel=()=>{if(pending!==null)cancelFrame(pending);pending=null;target=null;direction=0;};
+ const tick=time=>{
+  pending=null;
+  const current=read(),dt=Math.max(0,time-last);last=time;
+  const remaining=Math.log(target/current.scale),done=Math.abs(remaining)<.0005;
+  const scale=done?target:current.scale*Math.exp(remaining*(1-Math.exp(-dt/duration)));
+  apply({scale,cx:focus[0]-offset[0]/scale,cy:focus[1]-offset[1]/scale});
+  if(done){target=null;direction=0;}else pending=frame(tick);
+ };
+ return {cancel,zoom(factor,at){
+  const current=read(),sign=Math.sign(Math.log(factor)),[min,max]=limits();
+  // Discard outstanding motion when the user reverses the wheel.
+  if(target===null||sign&&direction&&sign!==direction)target=current.scale;
+  target=Math.max(min,Math.min(max,target*factor));direction=sign||direction;
+  focus=at||[current.cx,current.cy];offset=[(focus[0]-current.cx)*current.scale,(focus[1]-current.cy)*current.scale];
+  if(pending===null){last=now();pending=frame(tick);}
+ }};
+}

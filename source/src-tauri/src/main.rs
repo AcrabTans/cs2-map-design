@@ -53,6 +53,18 @@ fn open_reference(key: &str) -> Result<(), String> {
         "overlay" => "https://mods.paradoxplaza.com/mods/74539/Windows",
         _ => return Err("未知的帮助链接".into()),
     };
+    open_web_url(url)
+}
+
+#[tauri::command]
+fn open_mod_page(id: &str) -> Result<(), String> {
+    if id.is_empty() || id.len() > 20 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("Paradox Mods 编号无效".into());
+    }
+    open_web_url(&format!("https://mods.paradoxplaza.com/mods/{id}/Windows"))
+}
+
+fn open_web_url(url: &str) -> Result<(), String> {
     std::process::Command::new("rundll32.exe")
         .args(["url.dll,FileProtocolHandler", url])
         .spawn()
@@ -91,10 +103,11 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             files::pick_files, files::pick_directory, files::pick_save, files::file_stat,
-            files::read_file, files::write_file, files::directory_entries, files::asset_cache_authors, files::directory_child,
+            files::read_file, files::write_file, files::directory_entries, files::asset_cache_mods, files::directory_child,
             files::preset_lod_files,
+            files::preset_building_files,
             files::write_extracted_asset, asset_geometry::asset_zstd, asset_geometry::asset_project,
-            update_title, toggle_fullscreen, confirm_discard, exit_app, enable_close_guard, open_reference
+            update_title, toggle_fullscreen, confirm_discard, exit_app, enable_close_guard, open_reference, open_mod_page
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

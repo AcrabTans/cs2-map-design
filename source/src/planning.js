@@ -133,7 +133,7 @@ export function mergePlanningWorkspace(project,working,{referenceIds,id,frame}){
  if(!additions.length)throw Error('工作区还没有可合并的规划对象。');
  const available=new Set([...features.keys(),...additions.map(feature=>feature.id)]);
  const packs=new Map(buildingPacksFor(working).map(pack=>[pack.id,pack]));
- const currentPacks=new Map(buildingPacksFor(project).map(pack=>[pack.id,pack]));
+ const currentPacks=new Map(buildingPacksFor(project,{includePresets:false}).map(pack=>[pack.id,pack]));
  let next=project,replaced=0;
  for(const object of additions){
   const old=features.get(object.id);

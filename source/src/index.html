@@ -107,14 +107,28 @@
 <dialog id="networkDialog"><div class="dialog-header"><span class="eyebrow">NETWORK SETTINGS</span><button data-close="networkDialog" aria-label="关闭路网设定">×</button></div><h2>路网属性与设定</h2><p class="muted">地面、高架／桥梁、隧道使用同一色系；地面无描边，高架和隧道带两侧边线。新路宽仅影响之后绘制的道路，现有道路按各自路宽显示。</p><div id="roadDefaults"></div><div class="structure-filters" id="structureFilters"></div><div class="dialog-actions"><button id="saveNetworkSettings" class="primary">保存设定</button></div></dialog>
 <dialog id="assetExtractorDialog">
 <div class="dialog-header"><h2>资产提取</h2><button data-close="assetExtractorDialog" aria-label="关闭资产提取">×</button></div>
-<div class="extractor-row extractor-commands"><button id="extractorPickFolder">扫描 Mod 文件夹</button><button id="extractorPickFiles">选择 .cok 文件</button><button id="extractorPickOutput">选择输出文件夹</button><span id="extractorDestination">未选择输出文件夹</span></div>
+<div class="extractor-row extractor-commands"><button id="extractorPickFolder" aria-describedby="extractorScanHint">扫描 Mod 文件夹</button><span id="extractorScanHint" role="tooltip" hidden>常用目录 %USERPROFILE%\AppData\LocalLow\Colossal Order\Cities Skylines II\.cache\Mods\pdx_mods</span><button id="extractorPickFiles">选择 .cok 文件</button><button id="extractorPickOutput">选择输出文件夹</button><span id="extractorDestination">未选择输出文件夹</span></div>
 <div class="extractor-row extractor-filters">
  <input id="extractorSearch" type="search" aria-label="搜索扫描结果" placeholder="搜索名称、作者、资产或 Mod 编号">
  <select id="extractorFilter" aria-label="筛选类型"><option value="">全部类型</option><option value="building">建筑资产</option><option value="ready">可提取建筑包</option><option value="other">其他资产</option><option value="code">代码 Mod</option><option value="unidentified">其他 / 读取失败</option></select>
  <select id="extractorAuthorFilter" aria-label="筛选作者"><option value="">全部作者</option></select>
  <button id="extractorCheckAll" disabled>勾选当前结果</button><button id="extractorClear" disabled>清空勾选</button><span id="extractorSelected" aria-live="polite"></span>
 </div>
-<div class="extractor-table"><table><colgroup><col class="extractor-col-check"><col><col class="extractor-col-author"><col class="extractor-col-type"><col class="extractor-col-count"><col class="extractor-col-mod"><col class="extractor-col-size"></colgroup><thead><tr><th scope="col">选</th><th scope="col">名称</th><th scope="col">作者</th><th scope="col">类型</th><th scope="col">建筑数</th><th scope="col">Mod / 版本</th><th scope="col">包大小</th></tr></thead><tbody id="extractorCatalog"></tbody></table></div>
+<div class="extractor-table">
+ <table>
+  <colgroup><col class="extractor-col-check"><col><col class="extractor-col-author"><col class="extractor-col-type"><col class="extractor-col-count"><col class="extractor-col-mod"><col class="extractor-col-size"></colgroup>
+  <thead><tr>
+   <th scope="col">选</th>
+   <th scope="col"><button type="button" data-extractor-sort="name">名称</button></th>
+   <th scope="col"><button type="button" data-extractor-sort="author">作者</button></th>
+   <th scope="col"><button type="button" data-extractor-sort="type">类型</button></th>
+   <th scope="col"><button type="button" data-extractor-sort="buildingCount">建筑数</button></th>
+   <th scope="col"><button type="button" data-extractor-sort="mod">Mod / 版本</button></th>
+   <th scope="col"><button type="button" data-extractor-sort="size">包大小</button></th>
+  </tr></thead>
+  <tbody id="extractorCatalog"></tbody>
+ </table>
+</div>
 <div class="extractor-info">
  <section><h3>包内资产</h3><div id="extractorDetails"></div></section>
  <section><h3>提取结果</h3><ul id="extractorResults"></ul></section>
@@ -123,11 +137,18 @@
  <label><input type="checkbox" value="projection" data-extractor-format checked> 二维投影</label>
  <label><input type="checkbox" value="lod2" data-extractor-format> LOD2</label>
  <label><input type="checkbox" value="lod1" data-extractor-format> LOD1</label>
- <select id="extractorExportMode" aria-label="输出方式"><option value="separate">按包分别输出</option><option value="merged">按格式合并输出</option></select>
- <progress id="extractorProgress" value="0" max="1" aria-label="扫描和提取进度"></progress><button id="extractorStart" disabled>提取所选资产包</button><button id="extractorImport" class="primary" title="导入二维资产到当前地图的建筑资产库，并为本次运行载入所选 LOD" disabled>导入到地图</button>
+ <select id="extractorExportMode" aria-label="输出方式"><option value="merged" selected>按格式合并输出</option><option value="separate">按包分别输出</option></select>
+ <progress id="extractorProgress" value="0" max="1" aria-label="扫描和提取进度"></progress>
+ <div class="extractor-task-control">
+  <button id="extractorTask" type="button" aria-controls="extractorTaskMenu" aria-expanded="false" disabled>暂停 / 取消</button>
+  <div id="extractorTaskMenu" hidden><button id="extractorPause" type="button">暂停</button><button id="extractorCancel" type="button">取消任务</button></div>
+ </div>
+ <button id="extractorImport" title="先完成含二维投影的提取，再导入本次输出的投影和 LOD" disabled>导入到地图</button>
+ <button id="extractorStart" class="primary" disabled>提取所选资产包</button>
 </div>
 <p id="extractorStatus" role="status">扫描本地缓存，按 Mod 编号显示最高版本。</p>
 </dialog>
+<div id="assetModMenu" class="asset-mod-menu" popover><button id="assetModLink" type="button">打开 Paradox Mods 地址</button></div>
 <dialog id="namingDialog"><div class="dialog-header"><h2>取名工具</h2><button data-close="namingDialog" aria-label="关闭取名工具">×</button></div><div class="naming-controls"><label>地区风格<select id="namingStyle"></select></label><label>对象类型<select id="namingType"></select></label><label>语言<select id="namingLanguage"><option value="both">中英对照</option><option value="zh">中文</option><option value="en">英文／拉丁字母</option></select></label><label>每批数量<select id="namingCount"><option selected>16</option><option>32</option><option>64</option></select></label></div><div class="naming-actions"><button class="primary" id="generateNames">换一批</button><button id="copyNameBatch">复制本批</button><button id="toggleNamingLibrary" aria-pressed="false">查看全部</button><span id="namingCountInfo" aria-live="polite"></span></div><div id="namingLibraryTools" class="naming-library-tools" hidden><input id="namingSearch" type="search" placeholder="搜索当前候选名称" aria-label="搜索名称"><button id="namingPrevPage">上一页</button><label>第 <input id="namingPage" type="number" min="1" value="1" aria-label="页码"> 页</label><span id="namingPageTotal"></span><button id="namingNextPage">下一页</button></div><div id="namingStatus" aria-live="polite"></div><ul id="namingResults"></ul></dialog>
 <dialog id="threeDialog">
  <div class="dialog-header"><h2>3D 视图</h2><button data-close="threeDialog" aria-label="关闭 3D 视图">×</button></div>
@@ -147,7 +168,7 @@
 </dialog>
 <dialog id="aboutDialog" class="reference-dialog" aria-labelledby="aboutTitle">
  <div class="dialog-header"><h2 id="aboutTitle">关于地图规划设计器</h2><button data-close="aboutDialog" aria-label="关闭关于">×</button></div>
- <div class="about-identity"><span class="brand-icon" aria-hidden="true">◈</span><div><strong>天际线Ⅱ地图规划设计器</strong><div>v0.7.0 · Windows x64 · Tauri 绿色版</div></div></div>
+ <div class="about-identity"><span class="brand-icon" aria-hidden="true">◈</span><div><strong>天际线Ⅱ地图规划设计器</strong><div>v0.7.1 · Windows x64 · Tauri 绿色版</div></div></div>
  <p>本项目采用许愿式编程。为《Cities: Skylines II》玩家提供二维地图规划、工程管理和游戏内建设参考。</p>
  <dl class="about-notices">
   <dt>独立社区项目</dt><dd>本工具由社区维护，与 Colossal Order、Paradox Interactive 无官方隶属或合作关系。</dd>

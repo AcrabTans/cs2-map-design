@@ -14,11 +14,11 @@ installDesktopPickers({
  aboutApp:openAboutDialog
 });
 import {readProjectFolder,directoryProjectEntries,folderFileHandle,saveFolderLibraries} from './project-folder.js';
-import {removeProjectAssetPacks,buildingPacksFor,includePlacedAsset,catalogPage,readAssetSelection,buildingAngle,transformBuildingRing,buildingAssetLot,buildingAssetFits,makeBuildingAssetFeature,rotateBuildingAsset,moveBuildingAsset} from './building-assets.js';
+import {removeProjectAssetPacks,buildingPacksFor,addPresetBuildingPacks,includePlacedAsset,catalogPage,readAssetSelection,paradoxModId,buildingAngle,transformBuildingRing,buildingAssetLot,buildingAssetFits,makeBuildingAssetFeature,rotateBuildingAsset,moveBuildingAsset} from './building-assets.js';
 import {packCartoRecords,cartoExportRecords,CARTO_EXPORT_LAYERS} from './carto-export.js';
 import {packProject,packTauriProject,unpackProject,ProjectFileWriter,chooseProjectSaveTarget,fromBase64} from './project-file.js';
 import {createEditScheduler,createSnapIndex,createRoadSegmentIndex,createCrossingCache} from './edit-performance.js';
-import {networkDisplay,mapScrollAxis,createViewportScheduler} from './network-display.js';
+import {networkDisplay,mapScrollAxis,createViewportScheduler,createZoomAnimator,wheelZoomFactor} from './network-display.js';
 import {roadStackLevel,isStreetRoad,buildNetworkCrossings,junctionSectors,roadFlatEnds,crossingRelation} from './network-crossings.js';
 import {SIZE,ROADS,ZONES,MUNICIPAL_TYPES,municipalClass,municipalVisible,defaultLayerColor,featureDisplayColor,roadStyleColors,zoneInfo,roadInfo,distance,length,area,nearestGeometryEdge,geometryParts,insertGeometryNodes,initialProject,validateProject,isPolygonFeature,interiorPoint,GROUPS,BLOCK_CLASSES,BUILDINGS,blockClass,classInfo,featureSource,layerKey,visibleInEditor,labelsVisibleInEditor,originForFeature,lockedInEditor,prepareEditor,correctionCopy,validateInterchangeBounds,containedGeometry,buildingCategory,groupForLayer,layerKeysForGroup,CARTO_FIELDS,fieldsForLayer} from './model.js';
 import {terrainType,readTerrainTiff,terrainPixels,checkTerrainExtent,correctTerrainSource,terrainFingerprint} from './terrain.js';
@@ -237,14 +237,21 @@ function undo(redo=false){
  syncUI();render();renderProperties();persist();updateUndo();
 }
 function updateUndo(){$('undoBtn').disabled=!history.length;$('redoBtn').disabled=!future.length}
-function node(tag,attrs={},parent){const n=document.createElementNS(NS,tag);for(const [k,v]of Object.entries(attrs))n.setAttribute(k,String(v));if(parent)parent.appendChild(n);return n}
+function node(tag,attrs={},parent){
+ const n=document.createElementNS(NS,tag),{screen,...world}=attrs;
+ for(const [k,v]of Object.entries(world))n.setAttribute(k,String(v));
+ if(screen){n.setAttribute('data-screen',JSON.stringify(screen));updateScreenNode(n,screen);}
+ if(attrs['data-min-zoom']!==undefined)n.style.display=view.scale/fitScale>attrs['data-min-zoom']?'':'none';
+ if(parent)parent.appendChild(n);return n;
+}
+function updateScreenNode(n,sizes){for(const [key,value]of Object.entries(sizes))n.setAttribute(key,Array.isArray(value)?value[0]+value[1]/view.scale:value/view.scale);}
 function pathData(points,closed=false){return points.map((p,i)=>`${i?'L':'M'}${p[0]},${p[1]}`).join(' ')+(closed?' Z':'')}
 function featurePath(f,closed=true){return [f.points,...(f.additionalParts||[])].map(ps=>pathData(ps,closed)).join(' ');}
 function renderNetworkFeature(f,isSelected,hostOverride=null,edgeHost=null,flatEnds=null){
  const featureNode=(tag,attrs,parent)=>node(tag,{...attrs,'data-render-id':f.id},parent);
  const e=project.settings.editor,s=networkDisplay(f,e,view.scale),{route,color,width,opacity}=s;
  const host=hostOverride||mapElement(route?'routeShapes':'roadShapes'),poly=f.geometryType==='polygon',d=featurePath(f,poly);
- if(!route&&f.outlineParts&&!f.outlineDetached&&e.networkOutlines&&view.scale/fitScale>1.5)featureNode('path',{d:f.outlineParts.map(ps=>pathData(ps,true)).join(' '),fill:color,'fill-opacity':.08,stroke:color,'stroke-opacity':.3,'stroke-width':.5/view.scale,'fill-rule':'evenodd','data-id':f.id},host);
+ if(!route&&f.outlineParts&&!f.outlineDetached&&e.networkOutlines)featureNode('path',{d:f.outlineParts.map(ps=>pathData(ps,true)).join(' '),fill:color,'fill-opacity':.08,stroke:color,'stroke-opacity':.3,'stroke-width':.5,'vector-effect':'non-scaling-stroke','data-min-zoom':1.5,'fill-rule':'evenodd','data-id':f.id},host);
  if(poly){featureNode('path',{d,fill:color,'fill-rule':'evenodd','fill-opacity':opacity,stroke:'none','data-id':f.id},host);return;}
  const attrs={d,fill:'none',stroke:color,'stroke-opacity':opacity,'stroke-width':width,'stroke-linecap':s.type==='waterway'?'butt':'round','stroke-linejoin':'round','pointer-events':'none','data-network-type':f.type,'data-structure':s.structure,'data-render-width':s.actualWidth};
  const paint=(paintAttrs,parent)=>{
@@ -259,13 +266,13 @@ function renderNetworkFeature(f,isSelected,hostOverride=null,edgeHost=null,flatE
   });
  };
  if(!route&&project.settings.corridors&&!['bus','metro','waterway'].includes(f.type))paint({...attrs,'stroke-opacity':.08,'stroke-width':f.corridor},mapElement('corridorShapes'));
- if(isSelected)paint({...attrs,stroke:'#fff','stroke-opacity':.8,'stroke-width':width+4/view.scale},host);
+ if(isSelected)paint({...attrs,stroke:'#fff','stroke-opacity':.8,'stroke-width':width+4/view.scale,screen:{'stroke-width':[width,4]}},host);
  const lineWidth=Math.max(.1,width-s.edgeWidth*2);
  if(s.edgeWidth)paint({...attrs,stroke:s.edgeColor,'data-network-edge':'true'},edgeHost||host);
  paint({...attrs,'stroke-width':lineWidth},host);
  if(!route&&f.type==='rail')featureNode('path',{...attrs,stroke:s.railWhite,'stroke-width':lineWidth*.62,'stroke-linecap':'butt','stroke-dasharray':s.railSegment+' '+s.railSegment,'data-rail-inlay':'true'},host);
- featureNode('path',{d,fill:'none',stroke:'transparent','stroke-width':Math.max(width,13/view.scale),'data-id':f.id,'stroke-linecap':'round'},host);
- if(labelsVisibleInEditor(project,f)&&view.scale/fitScale>1.6&&(!project.proposal||isSelected)){const p=f.points[Math.floor(f.points.length/2)];label(f.name,[p[0],p[1]-10/view.scale],f.type==='waterway'?'#3187a4':color,mapElement('noteShapes'),10).setAttribute('data-render-id',f.id);}
+ featureNode('path',{d,fill:'none',stroke:'transparent','stroke-width':Math.max(width,13/view.scale),'data-hit-width':width,'data-id':f.id,'stroke-linecap':'round'},host);
+ if(labelsVisibleInEditor(project,f)&&(!project.proposal||isSelected)){const p=f.points[Math.floor(f.points.length/2)];const text=label(f.name,p,f.type==='waterway'?'#3187a4':color,mapElement('noteShapes'),10,-10);text.setAttribute('data-render-id',f.id);text.setAttribute('data-min-zoom',1.6);text.style.display=view.scale/fitScale>1.6?'':'none';}
 }
 function renderRoadNetwork(roads){
  networkJunctions=renderCrossingCache.get(roads);
@@ -335,24 +342,48 @@ function constrained(e){
 function fitView(){const r=viewport.getBoundingClientRect();fitScale=Math.min(r.width/SIZE,r.height/SIZE)*.92;view={cx:SIZE/2,cy:SIZE/2,scale:fitScale};}
 function fit(){fitView();render();}
 const scrollOffsets={x:0,y:0};
-function syncMapScrollbars(){
- const r=viewport.getBoundingClientRect();
+function syncMapScrollbars(r){
  for(const [axis,center,pixels]of [['x','cx',r.width],['y','cy',r.height]]){
   const state=mapScrollAxis(view[center],view.scale,pixels),bar=$(axis==='x'?'mapScrollX':'mapScrollY');view[center]=state.center;
-  bar.firstElementChild.style[axis==='x'?'width':'height']=state.extent+'px';
-  bar[axis==='x'?'scrollLeft':'scrollTop']=state.offset;scrollOffsets[axis]=bar[axis==='x'?'scrollLeft':'scrollTop'];
+  const size=axis==='x'?'width':'height',value=state.extent+'px';
+  if(bar.firstElementChild.style[size]!==value)bar.firstElementChild.style[size]=value;
+  bar[axis==='x'?'scrollLeft':'scrollTop']=state.offset;
+ }
+ for(const axis of ['x','y']){
+  const bar=$(axis==='x'?'mapScrollX':'mapScrollY');scrollOffsets[axis]=bar[axis==='x'?'scrollLeft':'scrollTop'];
  }
 }
 function bindMapScrollbars(){
- for(const [axis,center]of [['x','cx'],['y','cy']]){const bar=$(axis==='x'?'mapScrollX':'mapScrollY');bar.addEventListener('scroll',()=>{const offset=bar[axis==='x'?'scrollLeft':'scrollTop'];if(Math.abs(offset-scrollOffsets[axis])<.5)return;const r=viewport.getBoundingClientRect();view[center]=(offset+(axis==='x'?r.width:r.height)/2)/view.scale;viewportScheduler.schedule();});}
+ for(const [axis,center]of [['x','cx'],['y','cy']]){const bar=$(axis==='x'?'mapScrollX':'mapScrollY');bar.addEventListener('scroll',()=>{const offset=bar[axis==='x'?'scrollLeft':'scrollTop'];if(Math.abs(offset-scrollOffsets[axis])<.5)return;zoomAnimator.cancel();const r=viewport.getBoundingClientRect();view[center]=(offset+(axis==='x'?r.width:r.height)/2)/view.scale;viewportScheduler.schedule();});}
 }
-function updateView(){syncMapScrollbars();const r=viewport.getBoundingClientRect(),w=r.width/view.scale,h=r.height/view.scale;svg.setAttribute('viewBox',[view.cx-w/2,view.cy-h/2,w,h].join(' '));networkMaskBounds={x:view.cx-w/2-50,y:view.cy-h/2-50,width:w+100,height:h+100};for(const mask of $('networkMasks').children)for(const [key,value]of Object.entries(networkMaskBounds))mask.setAttribute(key,value);$('zoomValue').textContent=Math.round(view.scale/fitScale*100)+'%';const target=95/view.scale;const scale=[1,2,5,10,20,50,100,200,500,1000,2000,5000,10000].reduce((a,b)=>Math.abs(b-target)<Math.abs(a-target)?b:a);$('scaleLine').style.width=scale*view.scale+'px';$('scaleLabel').textContent=fmt(scale)}
+function updateView(){
+ const r=viewport.getBoundingClientRect();syncMapScrollbars(r);
+ for(const n of svg.querySelectorAll('[data-screen]'))updateScreenNode(n,JSON.parse(n.getAttribute('data-screen')));
+ for(const n of svg.querySelectorAll('[data-min-zoom]')){
+  const display=view.scale/fitScale>Number(n.getAttribute('data-min-zoom'))?'':'none';
+  if(n.style.display!==display)n.style.display=display;
+ }
+ const w=r.width/view.scale,h=r.height/view.scale;
+ svg.setAttribute('viewBox',[view.cx-w/2,view.cy-h/2,w,h].join(' '));
+ networkMaskBounds={x:view.cx-w/2-50,y:view.cy-h/2-50,width:w+100,height:h+100};
+ for(const mask of $('networkMasks').children)for(const [key,value]of Object.entries(networkMaskBounds))mask.setAttribute(key,value);
+ $('zoomValue').textContent=Math.round(view.scale/fitScale*100)+'%';
+ const target=95/view.scale,scale=[1,2,5,10,20,50,100,200,500,1000,2000,5000,10000].reduce((a,b)=>Math.abs(b-target)<Math.abs(a-target)?b:a);
+ $('scaleLine').style.width=scale*view.scale+'px';$('scaleLabel').textContent=fmt(scale);
+}
 let renderedScale=null;
-const viewportScheduler=createViewportScheduler(updateView,()=>{
- if(view.scale!==renderedScale)render();
-});
-function zoom(factor,at){const p=at||[view.cx,view.cy],old=view.scale;view.scale=Math.max(fitScale*.5,Math.min(fitScale*35,old*factor));const ratio=old/view.scale;view.cx=p[0]+(view.cx-p[0])*ratio;view.cy=p[1]+(view.cy-p[1])*ratio;viewportScheduler.schedule()}
-function label(text,p,color,parent,size=11){const n=node('text',{x:p[0],y:p[1],'font-size':size/view.scale,fill:color,'text-anchor':'middle','paint-order':'stroke','stroke':'#fcfff7','stroke-width':3/view.scale,'stroke-linejoin':'round','pointer-events':'none'},parent);n.textContent=text;return n}
+function refreshNavigationDetails(){
+ if(view.scale===renderedScale)return;
+ // Overview widths and proposal label collision depend on scale. Ordinary map
+ // geometry does not; preserve its DOM and only refresh the editing overlays.
+ if(project.settings.editor.widthMode==='overview'||project.proposal){render();return;}
+ for(const n of svg.querySelectorAll('[data-hit-width]'))n.setAttribute('stroke-width',Math.max(Number(n.getAttribute('data-hit-width')),13/view.scale));
+ renderDraft();renderSelection();renderMasterPlan();renderedScale=view.scale;
+}
+const viewportScheduler=createViewportScheduler(updateView,refreshNavigationDetails);
+const zoomAnimator=createZoomAnimator(()=>view,next=>{view=next;viewportScheduler.schedule();},()=>[fitScale*.5,fitScale*35]);
+function zoom(factor,at){zoomAnimator.zoom(factor,at);}
+function label(text,p,color,parent,size=11,offsetY=0){const n=node('text',{x:p[0],y:p[1],screen:{'font-size':size,...(offsetY?{y:[p[1],offsetY]}:{})},fill:color,'text-anchor':'middle','paint-order':'stroke','stroke':'#fcfff7','stroke-width':3,'vector-effect':'non-scaling-stroke','stroke-linejoin':'round','pointer-events':'none'},parent);n.textContent=text;return n}
 function workspaceCorridor(f){return basePlanningState&&f.attributes?.PlanStage==='corridors'&&!planningWorkspace.referenceIds.has(f.id);}
 
 function renderBaseLayers(){
@@ -360,17 +391,17 @@ function renderBaseLayers(){
  const settings=project.settings;mapElement('baseImage').style.display=settings.base==='none'?'none':'';const baseUrl=basemapUrl();if(mapElement('baseImage').getAttribute('href')!==baseUrl)mapElement('baseImage').setAttribute('href',baseUrl);mapElement('baseImage').setAttribute('opacity',settings.baseOpacity/100);mapElement('gridRect').style.display=settings.grid?'':'none';
  renderDistricts();const zoneLabelCandidates=[];
  for(const f of project.features.filter(f=>featureVisible(f))){const isSelected=f.id===selected;
-  if(f.kind==='zone'){const z=[f.type,zoneInfo(f.type)[1],featureDisplayColor(project,f)];const shape=node('path',{d:featurePath(f,true),fill:polygonFill(f,z[2]),'fill-rule':'evenodd','fill-opacity':settings.zoneOpacity/100,stroke:z[2],'stroke-width':1.3/view.scale,'stroke-dasharray':'none','data-id':f.id},mapElement('zoneShapes'));const hint=node('title',{},shape);hint.textContent=`${f.name} · ${z[1]} · ${fmtArea(area(f.points))}`;if(labelsVisibleInEditor(project,f)){const c=interiorPoint(f.points);if(project.proposal)zoneLabelCandidates.push({f,p:c});else label(f.tags?f.name+' · '+f.tags:f.name,c,'#3e6252',mapElement('noteShapes'),11)}}
+  if(f.kind==='zone'){const z=[f.type,zoneInfo(f.type)[1],featureDisplayColor(project,f)];const shape=node('path',{d:featurePath(f,true),fill:polygonFill(f,z[2]),'fill-rule':'evenodd','fill-opacity':settings.zoneOpacity/100,stroke:z[2],'stroke-width':1.3,'vector-effect':'non-scaling-stroke','stroke-dasharray':'none','data-id':f.id},mapElement('zoneShapes'));const hint=node('title',{},shape);hint.textContent=`${f.name} · ${z[1]} · ${fmtArea(area(f.points))}`;if(labelsVisibleInEditor(project,f)){const c=interiorPoint(f.points);if(project.proposal)zoneLabelCandidates.push({f,p:c});else label(f.tags?f.name+' · '+f.tags:f.name,c,'#3e6252',mapElement('noteShapes'),11)}}
   if(f.kind==='route'||f.kind==='road'&&f.type==='bus')renderNetworkFeature(f,!!project.proposal&&isSelected);
   if(f.kind==='note'){const p=f.points[0];
    if(f.attributes?.PlanGuide&&f.points.length>1)node('path',{d:pathData(f.points),fill:'none',
-    stroke:'#705c91','stroke-width':2/view.scale,'stroke-dasharray':(7/view.scale)+' '+(5/view.scale),'data-id':f.id},mapElement('noteShapes'));if(project.proposal&&view.scale/fitScale<2&&!isSelected){const marker=node('circle',{cx:p[0],cy:p[1],r:3/view.scale,fill:'#6c8674','data-id':f.id},mapElement('noteShapes'));const hint=node('title',{},marker);hint.textContent=f.name;continue;}node('circle',{cx:p[0],cy:p[1],r:4/view.scale,fill:'#55725e',stroke:'#fcfff5','stroke-width':2/view.scale,'data-id':f.id},mapElement('noteShapes'));const t=label(f.name,[p[0],p[1]-12/view.scale],'#345540',mapElement('noteShapes'),12);t.setAttribute('data-id',f.id);t.setAttribute('pointer-events','auto')}
+    stroke:'#705c91','stroke-width':2,'vector-effect':'non-scaling-stroke','stroke-dasharray':'7 5','data-id':f.id},mapElement('noteShapes'));if(project.proposal&&view.scale/fitScale<2&&!isSelected){const marker=node('circle',{cx:p[0],cy:p[1],screen:{r:3},fill:'#6c8674','data-id':f.id},mapElement('noteShapes'));const hint=node('title',{},marker);hint.textContent=f.name;continue;}node('circle',{cx:p[0],cy:p[1],screen:{r:4},fill:'#55725e',stroke:'#fcfff5','stroke-width':2,'vector-effect':'non-scaling-stroke','data-id':f.id},mapElement('noteShapes'));const t=label(f.name,p,'#345540',mapElement('noteShapes'),12,-12);t.setAttribute('data-id',f.id);t.setAttribute('pointer-events','auto')}
  }
  renderRoadNetwork(project.features.filter(f=>f.kind==='road'&&f.type!=='bus'&&featureVisible(f)&&!workspaceCorridor(f)));
  if(basePlanningState)for(const road of project.features.filter(f=>f.kind==='road'&&workspaceCorridor(f)&&featureVisible(f))){
   const stroke=road.type==='highway'?'#208758':'#bc7137';
-  node('path',{d:featurePath(road,false),fill:'none',stroke,'stroke-width':3/view.scale,
-   'stroke-dasharray':(9/view.scale)+' '+(5/view.scale),'data-id':road.id},mapElement('roadShapes'));
+  node('path',{d:featurePath(road,false),fill:'none',stroke,'stroke-width':3,'vector-effect':'non-scaling-stroke',
+   'stroke-dasharray':'9 5','data-id':road.id},mapElement('roadShapes'));
  }
  if(project.proposal){
   const ranks={airport:1,station:1,university:1,'tech-university':1,medical:1,civic:1,port:1,shipyard:1,racetrack:1,racecourse:1,industry:2,vehicle:2,data:2,power:2,waste:2,innovation:2,pharma:2,water:2,marina:2,'high-mix':2,education:8,clinic:8,police:8,fire:8,service:8};const placed=[];
@@ -379,10 +410,10 @@ function renderBaseLayers(){
  }
 }
 function renderDraft(){if(tool==='asset-place'){renderAssetPreview();return;}$('drawingActions').hidden=draft.length===0;const group=$('draftShapes');group.replaceChildren();$('finishBtn').disabled=draft.length<(tool==='building'&&buildingGeometry==='point'?1:['zone','district','building','interchange'].includes(tool)?3:2);const points=[...draft];if(hover&&draft.length)points.push(hover);if(!points.length)return;const color=tool==='road'?roadInfo(roadType).color:tool==='zone'?zoneInfo(zoneType)[2]:tool==='district'?'#598c8c':'#315e50';
- if(points.length>1)node('path',{d:pathData(points,['zone','district','building','interchange'].includes(tool)&&points.length>2),fill:['zone','district','building','interchange'].includes(tool)?color:'none','fill-opacity':.18,stroke:color,'stroke-width':2/view.scale,'stroke-dasharray':`${6/view.scale} ${5/view.scale}`,'pointer-events':'none'},group);
- for(const p of draft)node('circle',{cx:p[0],cy:p[1],r:4/view.scale,fill:'#fff',stroke:color,'stroke-width':2/view.scale,'pointer-events':'none'},group);
- if(snapPoint)node('circle',{cx:snapPoint[0],cy:snapPoint[1],r:8/view.scale,fill:'none',stroke:'#258568','stroke-width':1.5/view.scale,'pointer-events':'none'},group);
- if(points.length>1){const p=points.at(-1),value=['zone','district','building','interchange'].includes(tool)&&points.length>2?fmtArea(area(points)):fmt(length(points));label(value,[p[0],p[1]-15/view.scale],color,group,12)}
+ if(points.length>1)node('path',{d:pathData(points,['zone','district','building','interchange'].includes(tool)&&points.length>2),fill:['zone','district','building','interchange'].includes(tool)?color:'none','fill-opacity':.18,stroke:color,'stroke-width':2,'vector-effect':'non-scaling-stroke','stroke-dasharray':'6 5','pointer-events':'none'},group);
+ for(const p of draft)node('circle',{cx:p[0],cy:p[1],screen:{r:4},fill:'#fff',stroke:color,'stroke-width':2,'vector-effect':'non-scaling-stroke','pointer-events':'none'},group);
+ if(snapPoint)node('circle',{cx:snapPoint[0],cy:snapPoint[1],screen:{r:8},fill:'none',stroke:'#258568','stroke-width':1.5,'vector-effect':'non-scaling-stroke','pointer-events':'none'},group);
+ if(points.length>1){const p=points.at(-1),value=['zone','district','building','interchange'].includes(tool)&&points.length>2?fmtArea(area(points)):fmt(length(points));label(value,p,color,group,12,-15)}
  $('finishBtn').disabled=draft.length<(tool==='building'&&buildingGeometry==='point'?1:['zone','district','building','interchange'].includes(tool)?3:2);
 }
 function updateStatus(){if(tool==='select'&&getSelected()?.assetPlacement){$('toolStatus').textContent='拖动建筑整体移动；右侧可调整位置和旋转角度';$('toolStatus').title=$('toolStatus').textContent;return;}if(tool==='asset-place'){updateAssetStatus();return;}const names={select:'双击选中对象的边线添加节点；Alt＋单击可选被覆盖的片区',pan:'拖动画布平移；滚轮缩放',measure:'逐点测量 · Enter 完成 · Esc 清除',road:`绘制${roadInfo(roadType).name} · 单击加点 · 可吸附同层道路 · Enter 完成`,zone:`绘制${zoneInfo(zoneType)[1]} · 至少 3 点 · Enter 闭合`,district:'绘制大片区边界 · 至少3点 · Enter闭合 · 不移动下属区块',note:'在地图上单击添加标注'};$('toolStatus').textContent=names[tool];$('toolStatus').title=names[tool]||'';}
@@ -488,6 +519,7 @@ function nearSelectedEdge(feature,point){
 }
 svg.addEventListener('pointerdown',e=>{
  if(e.button!==0&&e.button!==1)return;
+ zoomAnimator.cancel();refreshNavigationDetails();
  const point=screenPoint(e);
  if(space||tool==='pan'||e.button===1){
   e.preventDefault();drag={kind:'pan',x:e.clientX,y:e.clientY,cx:view.cx,cy:view.cy};
@@ -565,7 +597,7 @@ svg.addEventListener('dblclick',e=>{
   render();renderProperties();persist();
  }catch(error){toast(error.message);}
 });
-viewport.addEventListener('wheel',e=>{e.preventDefault();zoom(Math.exp(-e.deltaY*.0015),screenPoint(e))},{passive:false});
+viewport.addEventListener('wheel',e=>{e.preventDefault();if(!drag)zoom(wheelZoomFactor(e.deltaY,e.deltaMode,viewport.clientHeight),screenPoint(e));},{passive:false});
 window.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.querySelector('dialog[open]'))return;const key=e.key.toLowerCase();if((e.ctrlKey||e.metaKey)&&key==='z'){e.preventDefault();undo(e.shiftKey);return}if((e.ctrlKey||e.metaKey)&&key==='y'){e.preventDefault();undo(true);return}if(e.code==='Space'){e.preventDefault();space=true;viewport.style.cursor='grab'}if(key==='escape'){draft=[];hover=null;if(tool==='asset-place')stopAssetPlacement();else setTool('select')}if(key==='enter'){e.preventDefault();finish()}if(key==='delete'||key==='backspace'){e.preventDefault();if(draft.length){draft.pop();renderDraft()}else deleteSelected()}if(!e.ctrlKey&&!e.metaKey){if(key==='v')setTool('select');if(key==='h')setTool('pan');if(key==='m')setTool('measure');if(key==='z')drawOnLayer('zone');if(key==='d')drawOnLayer('district:large')}});
 window.addEventListener('keyup',e=>{if(e.code==='Space'){space=false;viewport.style.cursor=tool==='pan'?'grab':tool==='select'?'default':'crosshair'}});window.addEventListener('blur',()=>space=false);
 $('selectTool').onclick=()=>setTool('select');$('panTool').onclick=()=>setTool('pan');$('measureTool').onclick=()=>setTool('measure');$('finishBtn').onclick=finish;$('cancelBtn').onclick=()=>setTool('select');$('undoBtn').onclick=()=>undo();$('redoBtn').onclick=()=>undo(true);$('zoomIn').onclick=()=>zoom(1.4);$('zoomOut').onclick=()=>zoom(1/1.4);$('fitBtn').onclick=fit;
@@ -643,12 +675,12 @@ function activateLayer(key,source='manual',municipal=null){activeMunicipalClass=
 
 function syncUI(){syncOriginControls();const s=project.settings,e=s.editor;for(const [id,key]of [['gridToggle','grid'],['snapToggle','snap'],['notesVisible','notesVisible'],['corridorsToggle','corridors']])$(id).checked=s[key];for(const key of ['zoneOpacity']){$(key).value=s[key];$(key+'Value').textContent=s[key]+'%'}$('baseSelect').innerHTML=[['none','无底图'],...(['qgis','satellite'].filter(k=>openedBaseImages[k]||(typeof BASEMAPS!=='undefined'&&BASEMAPS[k])).map(k=>[k,k==='qgis'?'QGIS 简图':'卫星底图'])),...project.basemaps.map(b=>[b.id,b.name])].map(([id,n])=>`<option value="${escape(id)}">${escape(n)}</option>`).join('');$('baseSelect').value=s.base;document.querySelectorAll('[data-group]').forEach(x=>{const g=x.dataset.group;x.checked=e.groups[g]!==false&&(g!=='building'||e.layers.building.visible!==false)});document.querySelectorAll('[data-layer-key]').forEach(row=>{row.querySelector('[data-layer-visible]').checked=e.layers[row.dataset.layerKey].visible});syncMunicipalControls();document.querySelectorAll('[data-category]').forEach(b=>b.classList.toggle('active',activeLayer.key===b.dataset.category));}
 
-function renderDistricts(){for(const f of project.features.filter(f=>f.kind==='district'&&featureVisible(f))){const displayColor=featureDisplayColor(project,f);node('path',{d:featurePath(f,true),fill:polygonFill(f,displayColor),'fill-rule':'evenodd','fill-opacity':f.level==='small'?.09:.025,stroke:displayColor,'stroke-width':1.8/view.scale,'stroke-dasharray':`${(f.level==='small'?4:10)/view.scale} ${5/view.scale}`,'data-id':f.id},mapElement('districtShapes'));if(labelsVisibleInEditor(project,f)&&(f.level!=='tile'||f.id===selected||view.scale/fitScale>3))label(f.name,interiorPoint(f.points),displayColor,mapElement('districtShapes'),f.level==='small'?11:14)}}
-function renderMap(){renderBaseLayers();renderTerrain();for(const id of ['buildingShapes','interchangeShapes'])mapElement(id).replaceChildren();for(const f of project.features.filter(f=>['building','interchange'].includes(f.kind)&&featureVisible(f))){const color=featureDisplayColor(project,f),host=mapElement(f.kind==='building'?'buildingShapes':'interchangeShapes');if(f.assetPlacement){renderPlacedBuildingAsset(f,host,color);continue;}node(f.kind==='building'&&f.geometryType==='point'?'circle':'path',{...(f.kind==='building'&&f.geometryType==='point'?{cx:f.points[0][0],cy:f.points[0][1],r:6/view.scale}:{d:featurePath(f,true)}),fill:polygonFill(f,color),'fill-rule':'evenodd','fill-opacity':f.kind==='interchange'?.12:.55,stroke:color,'stroke-width':1.5/view.scale,'stroke-dasharray':f.kind==='interchange'?`${8/view.scale} ${4/view.scale}`:'none','data-id':f.id},host);if(labelsVisibleInEditor(project,f))label(f.name,interiorPoint(f.points),color,host,11);}
+function renderDistricts(){for(const f of project.features.filter(f=>f.kind==='district'&&featureVisible(f))){const displayColor=featureDisplayColor(project,f);node('path',{d:featurePath(f,true),fill:polygonFill(f,displayColor),'fill-rule':'evenodd','fill-opacity':f.level==='small'?.09:.025,stroke:displayColor,'stroke-width':1.8,'vector-effect':'non-scaling-stroke','stroke-dasharray':`${f.level==='small'?4:10} 5`,'data-id':f.id},mapElement('districtShapes'));if(labelsVisibleInEditor(project,f)){const text=label(f.name,interiorPoint(f.points),displayColor,mapElement('districtShapes'),f.level==='small'?11:14);if(f.level==='tile'&&f.id!==selected){text.setAttribute('data-min-zoom',3);text.style.display=view.scale/fitScale>3?'':'none';}}}}
+function renderMap(){renderBaseLayers();renderTerrain();for(const id of ['buildingShapes','interchangeShapes'])mapElement(id).replaceChildren();for(const f of project.features.filter(f=>['building','interchange'].includes(f.kind)&&featureVisible(f))){const color=featureDisplayColor(project,f),host=mapElement(f.kind==='building'?'buildingShapes':'interchangeShapes');if(f.assetPlacement){renderPlacedBuildingAsset(f,host,color);continue;}node(f.kind==='building'&&f.geometryType==='point'?'circle':'path',{...(f.kind==='building'&&f.geometryType==='point'?{cx:f.points[0][0],cy:f.points[0][1],screen:{r:6}}:{d:featurePath(f,true)}),fill:polygonFill(f,color),'fill-rule':'evenodd','fill-opacity':f.kind==='interchange'?.12:.55,stroke:color,'stroke-width':1.5,'vector-effect':'non-scaling-stroke','stroke-dasharray':f.kind==='interchange'?'8 4':'none','data-id':f.id},host);if(labelsVisibleInEditor(project,f))label(f.name,interiorPoint(f.points),color,host,11);}
 }
 function render(){
  snapIndex=null;assetSnapIndex=null;roadSegmentIndex=null;
- syncOriginControls();viewportScheduler.cancel();updateView();
+ syncOriginControls();zoomAnimator.cancel();viewportScheduler.cancel();updateView();
  renderMap();
  renderedScale=view.scale;
  renderDraft();renderSelection();renderMasterPlan();
@@ -659,23 +691,23 @@ function renderSelection(){
  const f=getSelected();
  if(f&&featureVisible(f)){
   const scale=view.scale,point=f.geometryType==='point'||f.kind==='note';
-  const outline={fill:'none',stroke:'#174f55','stroke-width':2.5/scale,'pointer-events':'none'};
-  if(point)node('circle',{...outline,cx:f.points[0][0],cy:f.points[0][1],r:8/scale},host);
+  const outline={fill:'none',stroke:'#174f55','stroke-width':2.5,'vector-effect':'non-scaling-stroke','pointer-events':'none'};
+  if(point)node('circle',{...outline,cx:f.points[0][0],cy:f.points[0][1],screen:{r:8}},host);
   else node('path',{...outline,d:featurePath(f,isPolygonFeature(f)),'stroke-linejoin':'round'},host);
   if(f.assetPlacement){
-   if(labelsVisibleInEditor(project,f))label(f.name,[f.poi[0],f.poi[1]-f.assetPlacement.lot[1]/2-12/scale],'#315b65',host,11);
+   if(labelsVisibleInEditor(project,f))label(f.name,[f.poi[0],f.poi[1]-f.assetPlacement.lot[1]/2],'#315b65',host,11,-12);
   }else if(!locked(f)){
    for(const [partIndex,points]of geometryParts(f).entries())for(const [index,p]of points.entries()){
     const active=partIndex===selectedNode?.partIndex&&index===selectedNode?.index;
-    node('circle',{cx:p[0],cy:p[1],r:(active?6:4.5)/scale,fill:active?'#194f47':'#fff',
-     stroke:'#2d6b58','stroke-width':1.8/scale,'data-part':partIndex,'data-node':index,'data-id':f.id,cursor:'move'},host);
+    node('circle',{cx:p[0],cy:p[1],screen:{r:active?6:4.5},fill:active?'#194f47':'#fff',
+     stroke:'#2d6b58','stroke-width':1.8,'vector-effect':'non-scaling-stroke','data-part':partIndex,'data-node':index,'data-id':f.id,cursor:'move'},host);
    }
   }
  }
  if(scopeId){
   const boundary=project.features.find(f=>f.id===scopeId);
   if(boundary&&featureVisible(boundary))node('path',{d:pathData(boundary.points,true),fill:'none',stroke:'#e06b38',
-   'stroke-width':3/view.scale,'stroke-dasharray':`${10/view.scale} ${5/view.scale}`,'pointer-events':'none'},host);
+   'stroke-width':3,'vector-effect':'non-scaling-stroke','stroke-dasharray':'10 5','pointer-events':'none'},host);
  }
 }
 function setTool(next,{keepAssetPanel=false,redraw=true}={}){
@@ -739,7 +771,7 @@ function renderDistrictStatistics(host,district){
  });
  host.querySelector('#deleteObject').before(details);
 }
-function focusObject(f){const xs=f.points.map(p=>p[0]),ys=f.points.map(p=>p[1]),r=viewport.getBoundingClientRect(),w=Math.max(...xs)-Math.min(...xs),h=Math.max(...ys)-Math.min(...ys);view={cx:(Math.max(...xs)+Math.min(...xs))/2,cy:(Math.max(...ys)+Math.min(...ys))/2,scale:Math.min(r.width/(w+500),r.height/(h+500),fitScale*15)};updateView();}
+function focusObject(f){zoomAnimator.cancel();const xs=f.points.map(p=>p[0]),ys=f.points.map(p=>p[1]),r=viewport.getBoundingClientRect(),w=Math.max(...xs)-Math.min(...xs),h=Math.max(...ys)-Math.min(...ys);view={cx:(Math.max(...xs)+Math.min(...xs))/2,cy:(Math.max(...ys)+Math.min(...ys))/2,scale:Math.min(r.width/(w+500),r.height/(h+500),fitScale*15)};updateView();}
 function widthModeField(id,value){return '<label class="field-label">道路宽度显示</label><select id="'+id+'"><option value="actual" '+(value==='actual'?'selected':'')+'>实际宽度（按米）</option><option value="overview" '+(value==='overview'?'selected':'')+'>概览加粗（最小 1 像素）</option></select>';}
 function openNetworkSettings(){const e=project.settings.editor,styles=e.roadStyles;
  $('roadDefaults').innerHTML=widthModeField('networkWidthMode',e.widthMode)+'<div class="two-fields"><label class="field-label">铁路基准黑／白段长 (m)<input id="networkRailSegment" type="number" min="2" max="200" value="'+e.railSegment+'"></label><label class="field-label">运营线路宽度 (m)<input id="networkRouteWidth" type="number" min="0.25" max="6" step="0.25" value="'+e.routeWidth+'"></label></div><div class="defaults-row network-palette"><b>分类</b><b>地面</b><b>高架</b><b>隧道</b><b>新路宽 m</b><b>走廊 m</b></div>'+ROADS.filter(r=>r.id!=='bus').map(r=>'<div class="defaults-row network-palette" data-default-road="'+r.id+'"><span>'+r.name+'</span>'+['color','elevatedColor','tunnelColor'].map((k,i)=>'<input type="color" value="'+styles[r.id][k]+'" aria-label="'+r.name+['地面','高架','隧道'][i]+'颜色">').join('')+'<input type="number" min="1" max="1000" value="'+styles[r.id].width+'" aria-label="'+r.name+'默认路宽"><input type="number" min="1" max="2000" value="'+styles[r.id].corridor+'" aria-label="'+r.name+'走廊"></div>').join('');
@@ -1136,14 +1168,41 @@ function renderAssetLibrary(host){
  document.querySelector('.right-panel').classList.add('has-selection');const packs=buildingPacksFor(project),pack=packs.find(p=>p.id===assetPackId);
  if(!pack){host.innerHTML='<div class="asset-shelf-title"><h2>选择资产包</h2><p>选择包内建筑，在地图上按真实尺寸摆放。</p></div>'+packs.map((p,i)=>`<button class="asset-package asset-package-large" data-open-pack="${i}"><span>${escape(p.name)}</span><small>${p.assets.length} 栋建筑 →</small></button>`).join('');for(const b of host.querySelectorAll('[data-open-pack]'))b.onclick=()=>openAssetPackage(packs[Number(b.dataset.openPack)].id);return;}
  const page=catalogPage(pack,{category:assetCatalogCategory,query:assetCatalogQuery,page:assetCatalogIndex}),categories=[...new Map(pack.assets.map(a=>[a.catalogCategory||a.type,a.catalogLabel||BUILDINGS.find(([id])=>id===a.type)?.[1]||a.type])).entries()];assetCatalogIndex=page.page;
- host.innerHTML=`<button class="back-layer" id="assetBackPacks">← 资产包列表</button><div class="asset-shelf-title"><h2>${escape(pack.name)}<small>${pack.assets.length} 栋</small></h2></div>${assetSelection?`<div class="asset-placement-controls"><strong>正在摆放：${escape(assetSelection.asset.name)}</strong>${assetCapacityRows(assetSelection.asset)}<div class="asset-rotation-row"><button id="assetRotateLeft" title="逆时针 15°">↶ 15°</button><label>角度 <input id="assetAngle" aria-label="摆放角度" type="number" step="1" value="${assetSelection.rotation}">°</label><button id="assetRotateRight" title="顺时针 15°">15° ↷</button></div><label class="check-row"><input id="assetRepeat" type="checkbox" ${assetRepeat?'checked':''}>连续摆放</label><div class="asset-placement-actions"><button id="assetZoom">放大查看</button><button id="assetStop" title="地图右键或 Esc 取消选择">取消选择</button></div><p>单击落位 · 右键取消 · R 旋转 90° · Shift+R 旋转 15°</p></div>`:'<p class="asset-shelf-hint">点击建筑，再在地图上点击摆放。</p>'}<div class="asset-catalog-controls"><select id="assetCatalogFilter" aria-label="筛选建筑用途"><option value="all">全部用途</option>${categories.map(([id,name])=>`<option value="${id}" ${assetCatalogCategory===id?'selected':''}>${escape(name)} · ${pack.assets.filter(a=>(a.catalogCategory||a.type)===id).length}</option>`).join('')}</select><input id="assetCatalogSearch" type="search" aria-label="搜索内置和导入资产" placeholder="名称、来源编号或子类" value="${escape(assetCatalogQuery)}"><div><button id="assetPrevPage" ${page.page===0?'disabled':''}>上一页</button><span>${page.total} 项 · ${page.page+1}/${page.pages} 页</span><button id="assetNextPage" ${page.page+1>=page.pages?'disabled':''}>下一页</button></div></div><div class="asset-card-list">${page.assets.map((a,i)=>`<button class="asset-card ${assetSelection?.pack.id===pack.id&&assetSelection.asset.id===a.id?'active':''}" data-asset-index="${pack.assets.indexOf(a)}" aria-pressed="${assetSelection?.pack.id===pack.id&&assetSelection.asset.id===a.id}">${assetThumbnail(a)}<span class="asset-card-info"><strong>${escape(a.name)}</strong><small>${escape(a.code)}</small>${a.catalogLabel?`<small>${escape(a.catalogLabel)}${a.catalogSubcategory!==a.catalogLabel?' · '+escape(a.catalogSubcategory):''}</small>`:''}<span>占地 ${a.lot[0]} × ${a.lot[1]} m</span><span>高 ${a.height.toFixed(2)} m</span><span>投影 ${a.area.toFixed(1)} m²</span></span></button>`).join('')}</div>`;
- if(!pack.builtin){const field=document.createElement('label');field.className='field-label';field.textContent='资产包分类';const select=document.createElement('select');select.innerHTML='<option value="official">官方资产包</option><option value="third-party">第三方资产包</option>';select.value=pack.assetGroup==='official'?'official':'third-party';field.append(select);host.querySelector('.asset-shelf-title').after(field);select.onchange=()=>{checkpoint();const p=project.assetPacks.find(p=>p.id===pack.id);p.assetGroup=select.value;persist();renderAssetPackages();};}
+ host.innerHTML=`<button class="back-layer" id="assetBackPacks">← 资产包列表</button><div class="asset-shelf-title"><h2>${escape(pack.name)}<small>${pack.assets.length} 栋</small></h2></div>${assetSelection?`<div class="asset-placement-controls"><strong>正在摆放：${escape(assetSelection.asset.name)}</strong>${assetCapacityRows(assetSelection.asset)}<div class="asset-rotation-row"><button id="assetRotateLeft" title="逆时针 15°">↶ 15°</button><label>角度 <input id="assetAngle" aria-label="摆放角度" type="number" step="1" value="${assetSelection.rotation}">°</label><button id="assetRotateRight" title="顺时针 15°">15° ↷</button></div><label class="check-row"><input id="assetRepeat" type="checkbox" ${assetRepeat?'checked':''}>连续摆放</label><div class="asset-placement-actions"><button id="assetZoom">放大查看</button><button id="assetStop" title="地图右键或 Esc 取消选择">取消选择</button></div><p>单击落位 · 右键取消 · R 旋转 90° · Shift+R 旋转 15°</p></div>`:'<p class="asset-shelf-hint">点击建筑，再在地图上点击摆放。</p>'}<div class="asset-catalog-controls"><select id="assetCatalogFilter" aria-label="筛选建筑用途"><option value="all">全部用途</option>${categories.map(([id,name])=>`<option value="${escape(id)}" ${assetCatalogCategory===id?'selected':''}>${escape(name)} · ${pack.assets.filter(a=>(a.catalogCategory||a.type)===id).length}</option>`).join('')}</select><input id="assetCatalogSearch" type="search" aria-label="搜索内置和导入资产" placeholder="名称、来源编号或子类" value="${escape(assetCatalogQuery)}"><div><button id="assetPrevPage" ${page.page===0?'disabled':''}>上一页</button><span>${page.total} 项 · ${page.page+1}/${page.pages} 页</span><button id="assetNextPage" ${page.page+1>=page.pages?'disabled':''}>下一页</button></div></div><div class="asset-card-list">${page.assets.map((a,i)=>`<button class="asset-card ${assetSelection?.pack.id===pack.id&&assetSelection.asset.id===a.id?'active':''}" data-asset-index="${pack.assets.indexOf(a)}" aria-pressed="${assetSelection?.pack.id===pack.id&&assetSelection.asset.id===a.id}">${assetThumbnail(a)}<span class="asset-card-info"><strong>${escape(a.name)}</strong><small>${escape(a.code)}</small>${a.catalogLabel?`<small>${escape(a.catalogLabel)}${a.catalogSubcategory!==a.catalogLabel?' · '+escape(a.catalogSubcategory):''}</small>`:''}<span>占地 ${a.lot[0]} × ${a.lot[1]} m</span><span>高 ${a.height.toFixed(2)} m</span><span>投影 ${a.area.toFixed(1)} m²</span></span></button>`).join('')}</div>`;
+ const projectPack=project.assetPacks.find(p=>p.id===pack.id);
+ if(pack.author||!pack.builtin){
+  const author=document.createElement('p');
+  author.className='asset-author';author.textContent='作者 '+(pack.author||'未知');
+  host.querySelector('.asset-shelf-title').append(author);
+ }
+ if(!pack.builtin&&projectPack){const field=document.createElement('label');field.className='field-label';field.textContent='资产包分类';const select=document.createElement('select');select.innerHTML='<option value="official">官方资产包</option><option value="third-party">第三方资产包</option>';select.value=pack.assetGroup==='official'?'official':'third-party';field.append(select);host.querySelector('.asset-shelf-title').after(field);select.onchange=()=>{checkpoint();projectPack.assetGroup=select.value;persist();renderAssetPackages();};}
  $('assetCatalogFilter').onchange=e=>{assetCatalogCategory=e.target.value;assetCatalogIndex=0;renderProperties();};
  $('assetCatalogSearch').oninput=e=>{const at=e.target.selectionStart;assetCatalogQuery=e.target.value;assetCatalogIndex=0;renderProperties();$('assetCatalogSearch').focus();$('assetCatalogSearch').setSelectionRange(at,at);};
  $('assetPrevPage').onclick=()=>{assetCatalogIndex--;renderProperties();};$('assetNextPage').onclick=()=>{assetCatalogIndex++;renderProperties();};
  $('assetBackPacks').onclick=()=>{setTool('select');assetPanelMode='assets';assetPackId=null;renderAssetPackages();renderProperties();};
- for(const b of host.querySelectorAll('[data-asset-index]'))b.onclick=()=>startAssetPlacement(pack,pack.assets[Number(b.dataset.assetIndex)]);
+ const modId=paradoxModId(pack.modUrl);
+ for(const b of host.querySelectorAll('[data-asset-index]')){
+  b.onclick=()=>startAssetPlacement(pack,pack.assets[Number(b.dataset.assetIndex)]);
+  if(modId)b.oncontextmenu=event=>openAssetModMenu(event,modId,pack.modUrl);
+ }
  if(assetSelection){$('assetRotateLeft').onclick=()=>changeAssetAngle(assetSelection.rotation-15);$('assetRotateRight').onclick=()=>changeAssetAngle(assetSelection.rotation+15);$('assetAngle').onchange=e=>{const n=Number(e.target.value);if(Number.isFinite(n))changeAssetAngle(n);};$('assetRepeat').onchange=e=>assetRepeat=e.target.checked;$('assetStop').onclick=stopAssetPlacement;$('assetZoom').onclick=()=>zoom(1.8);}
+}
+function openAssetModMenu(event,modId,url){
+ event.preventDefault();
+ const menu=$('assetModMenu'),link=$('assetModLink'),rect=event.currentTarget.getBoundingClientRect();
+ if(!menu.matches(':popover-open'))menu.showPopover();
+ const x=event.clientX||rect.left,y=event.clientY||rect.bottom;
+ menu.style.left=Math.max(4,Math.min(x,innerWidth-menu.offsetWidth-4))+'px';
+ menu.style.top=Math.max(4,Math.min(y,innerHeight-menu.offsetHeight-4))+'px';
+ link.title=url;
+ link.onclick=async()=>{
+  menu.hidePopover();
+  try{
+   if(window.mapDesktop?.openModPage)await window.mapDesktop.openModPage(modId);
+   else window.open(url,'_blank','noopener,noreferrer');
+  }catch(error){toast(error.message||String(error));}
+ };
+ link.focus();
 }
 function startAssetPlacement(pack,a){
  project.settings.editor.origins.planning=true;
@@ -1164,14 +1223,14 @@ function assetPreviewFeature(){if(!assetSelection||!assetHover)return null;const
 function renderAssetPreview(){
  if(tool!=='asset-place')return;const host=$('draftShapes');host.replaceChildren();$('drawingActions').hidden=true;const f=assetPreviewFeature();if(!f)return;
  const valid=buildingAssetFits(f,SIZE)&&featureVisible(f)&&!project.settings.editor.layers[layerKey(f)].locked,color=valid?'#286c6b':'#c04b43';
- node('path',{d:pathData(buildingAssetLot(f),true),fill:valid?'#c5dab4':'#eab5ac','fill-opacity':.25,stroke:color,'stroke-width':1.2/view.scale,'stroke-dasharray':`${5/view.scale} ${3/view.scale}`,'pointer-events':'none'},host);
- node('path',{d:featurePath(f,true),fill:valid?'#4b8293':'#c65a50','fill-rule':'evenodd','fill-opacity':.75,stroke:color,'stroke-width':1.3/view.scale,'pointer-events':'none'},host);
- const top=Math.min(...buildingAssetLot(f).map(p=>p[1]));label(`${f.assetPlacement.lot.join(' × ')} m · 高 ${f.assetPlacement.height.toFixed(1)} m`,[f.poi[0],top-13/view.scale],color,host,11);
+ node('path',{d:pathData(buildingAssetLot(f),true),fill:valid?'#c5dab4':'#eab5ac','fill-opacity':.25,stroke:color,'stroke-width':1.2,'vector-effect':'non-scaling-stroke','stroke-dasharray':'5 3','pointer-events':'none'},host);
+ node('path',{d:featurePath(f,true),fill:valid?'#4b8293':'#c65a50','fill-rule':'evenodd','fill-opacity':.75,stroke:color,'stroke-width':1.3,'vector-effect':'non-scaling-stroke','pointer-events':'none'},host);
+ const top=Math.min(...buildingAssetLot(f).map(p=>p[1]));label(`${f.assetPlacement.lot.join(' × ')} m · 高 ${f.assetPlacement.height.toFixed(1)} m`,[f.poi[0],top],color,host,11,-13);
 }
 function renderPlacedBuildingAsset(f,host,color){
  const meta=f.assetPlacement;
- if(meta.showLot)node('path',{d:pathData(buildingAssetLot(f),true),fill:'#bfd2a9','fill-opacity':.13,stroke:'#7f9e72','stroke-width':.8/view.scale,'data-id':f.id,'data-asset-lot':f.id},host);
- const shape=node('path',{d:featurePath(f,true),fill:color,'fill-rule':'evenodd','fill-opacity':.85,stroke:'#315b65','stroke-width':1/view.scale,'data-id':f.id,'data-building-asset':meta.assetId},host);
+ if(meta.showLot)node('path',{d:pathData(buildingAssetLot(f),true),fill:'#bfd2a9','fill-opacity':.13,stroke:'#7f9e72','stroke-width':.8,'vector-effect':'non-scaling-stroke','data-id':f.id,'data-asset-lot':f.id},host);
+ const shape=node('path',{d:featurePath(f,true),fill:color,'fill-rule':'evenodd','fill-opacity':.85,stroke:'#315b65','stroke-width':1,'vector-effect':'non-scaling-stroke','data-id':f.id,'data-building-asset':meta.assetId},host);
  node('title',{},shape).textContent=`${f.name} · 占地 ${meta.lot.join(' × ')} m · 高 ${meta.height.toFixed(2)} m`;
 }
 function placeBuildingAsset(){
@@ -1209,6 +1268,25 @@ async function importChosenAssets(files){
  $('buildingLibraryFile').value='';
 }
 $('buildingLibraryFile').onchange=e=>importChosenAssets([...e.target.files]);
+
+async function loadPresetBuildingPacks(){
+ const files=await window.mapDesktop.presetBuildingFiles();
+ const warnings=[];
+ for(const info of files){
+  try{
+   addPresetBuildingPacks(await readAssetSelection([desktopFile(info)]));
+  }catch(error){
+   warnings.push(`${info.name}：${error.message||error}`);
+  }
+ }
+ if(!files.length)return;
+ renderAssetPackages();
+ if(assetPanelMode==='assets')renderProperties();
+ if(warnings.length){
+  const extra=warnings.length>1?`，另有 ${warnings.length-1} 个失败`:'';
+  toast('预置投影读取失败 · '+warnings[0]+extra);
+ }
+}
 const assetPreviewScheduler=createEditScheduler(renderAssetPreview);
 svg.addEventListener('pointermove',e=>{if(tool==='asset-place'&&!drag){assetHover=assetHoverPoint(e);assetPreviewScheduler.schedule();}});
 svg.addEventListener('pointerleave',()=>{if(tool==='asset-place'){assetPreviewScheduler.cancel();assetHover=null;renderAssetPreview();}});
@@ -1312,11 +1390,11 @@ function paintDragPreview(){
   node('path',{d,fill:poly?style.color:'none',stroke:'#fff','stroke-width':style.width+4/view.scale,'stroke-opacity':.8,'stroke-linecap':'round','stroke-linejoin':'round'},preview);
   if(style.edgeWidth)node('path',{d,fill:'none',stroke:style.edgeColor,'stroke-width':style.width,'stroke-linecap':'round','stroke-linejoin':'round'},preview);
   node('path',{d,fill:poly?style.color:'none',stroke:style.color,'stroke-width':Math.max(.1,style.width-2*style.edgeWidth),'stroke-linecap':'round','stroke-linejoin':'round'},preview);
- }else if(f.geometryType==='point')node('circle',{cx:f.points[0][0],cy:f.points[0][1],r:6/view.scale,fill:featureDisplayColor(project,f)},preview);
- else node('path',{d:featurePath(f,true),fill:featureDisplayColor(project,f),'fill-rule':'evenodd','fill-opacity':.35,stroke:'#276554','stroke-width':2/view.scale},preview);
+ }else if(f.geometryType==='point')node('circle',{cx:f.points[0][0],cy:f.points[0][1],screen:{r:6},fill:featureDisplayColor(project,f)},preview);
+ else node('path',{d:featurePath(f,true),fill:featureDisplayColor(project,f),'fill-rule':'evenodd','fill-opacity':.35,stroke:'#276554','stroke-width':2,'vector-effect':'non-scaling-stroke'},preview);
  if(!f.assetPlacement)for(const [partIndex,points]of geometryParts(f).entries())for(const [index,p]of points.entries()){
   const active=partIndex===selectedNode?.partIndex&&index===selectedNode?.index;
-  node('circle',{cx:p[0],cy:p[1],r:(active?6:4)/view.scale,fill:'#fff',stroke:'#276554','stroke-width':1.5/view.scale},preview);
+  node('circle',{cx:p[0],cy:p[1],screen:{r:active?6:4},fill:'#fff',stroke:'#276554','stroke-width':1.5,'vector-effect':'non-scaling-stroke'},preview);
  }
 }
 const editPreviewScheduler=createEditScheduler(paintDragPreview);
@@ -1412,50 +1490,50 @@ function renderMasterPlan(){
  const scale=view.scale;
  const drawReserve=(a,b)=>node('rect',{x:Math.min(a[0],b[0]),y:Math.min(a[1],b[1]),
   width:Math.abs(a[0]-b[0]),height:Math.abs(a[1]-b[1]),fill:'#b96c48','fill-opacity':.14,
-  stroke:'#a45532','stroke-width':2/scale,'stroke-dasharray':`${7/scale} ${4/scale}`},host);
+  stroke:'#a45532','stroke-width':2,'vector-effect':'non-scaling-stroke','stroke-dasharray':'7 4'},host);
  const full=session.mode==='full';
  if(full)for(const [a,b]of session.reserves)drawReserve(a,b);
- if(session.corner)node('circle',{cx:session.corner[0],cy:session.corner[1],r:5/scale,fill:'#a45532'},host);
+ if(session.corner)node('circle',{cx:session.corner[0],cy:session.corner[1],screen:{r:5},fill:'#a45532'},host);
  const preview=session.preview?.revision===editRevision?session.preview.plan:null;
  if(preview){
   for(const guide of preview.scenicGuides||[]){
    const color=guide.kind==='sequence'?'#007c79':'#705c91';
-   node('path',{d:pathData(guide.points),fill:'none',stroke:color,'stroke-width':2/scale,
-    'stroke-dasharray':`${7/scale} ${5/scale}`},host);
+   node('path',{d:pathData(guide.points),fill:'none',stroke:color,'stroke-width':2,'vector-effect':'non-scaling-stroke',
+    'stroke-dasharray':'7 5'},host);
    const [a,b]=guide.points;
    label(guide.name,[(a[0]+b[0])/2,(a[1]+b[1])/2],color,host,11);
   }
   for(const note of preview.scenicNotes||[]){
    const [point]=note.points;
-   node('circle',{cx:point[0],cy:point[1],r:6/scale,fill:'#705c91',stroke:'#fff','stroke-width':1.5/scale},host);
-   label(note.name,[point[0],point[1]-12/scale],'#5b4679',host,11);
+   node('circle',{cx:point[0],cy:point[1],screen:{r:6},fill:'#705c91',stroke:'#fff','stroke-width':1.5,'vector-effect':'non-scaling-stroke'},host);
+   label(note.name,point,'#5b4679',host,11,-12);
   }
   for(const district of preview.districts||[]){
    const color=classInfo({type:district.type})[2];
    node('path',{d:district.rings.map(ring=>pathData(ring,true)).join(' '),fill:color,'fill-opacity':.34,
-    'fill-rule':'evenodd',stroke:color,'stroke-width':2/scale},host);
+    'fill-rule':'evenodd',stroke:color,'stroke-width':2,'vector-effect':'non-scaling-stroke'},host);
    label(district.name,interiorPoint(district.rings[0]),color,host,12);
   }
   for(const zone of preview.zones||[]){
    const color=classInfo(zone)[2];
-   node('path',{d:pathData(zone.points,true),fill:color,'fill-opacity':.36,stroke:color,'stroke-width':1/scale},host);
+   node('path',{d:pathData(zone.points,true),fill:color,'fill-opacity':.36,stroke:color,'stroke-width':1,'vector-effect':'non-scaling-stroke'},host);
   }
   for(const {feature}of preview.buildings||[]){
    const color=featureDisplayColor(project,feature);
    node('path',{d:geometryParts(feature).map(points=>pathData(points,true)).join(' '),fill:color,'fill-rule':'evenodd',
-    stroke:color,'stroke-width':.65/scale,'fill-opacity':.86},host);
+    stroke:color,'stroke-width':.65,'vector-effect':'non-scaling-stroke','fill-opacity':.86},host);
   }
   for(const tree of preview.trees||[])node('path',{d:pathData(tree.points,true),fill:'#357546','fill-opacity':.64},host);
   for(const envelope of preview.envelopes||[])node('path',{d:pathData(envelope.points,true),fill:'#213a36','fill-opacity':.22},host);
   for(const {points}of preview.interchanges||[]){
-   node('path',{d:pathData(points,true),fill:'#c8833c','fill-opacity':.24,stroke:'#9d5828','stroke-width':2/scale,
-    'stroke-dasharray':`${5/scale} ${3/scale}`},host);
+   node('path',{d:pathData(points,true),fill:'#c8833c','fill-opacity':.24,stroke:'#9d5828','stroke-width':2,'vector-effect':'non-scaling-stroke',
+    'stroke-dasharray':'5 3'},host);
    label('互通预留',interiorPoint(points),'#884a25',host,11);
   }
   for(const {point,candidate}of [...(preview.access||[]),...(preview.arterialAccess||[])]){
    if(full&&visibleMasterPins($('masterPlanMode').value).some(([kind])=>masterPins(session,kind).some(manual=>distance(manual,point)<.01)))continue;
-   node('circle',{cx:point[0],cy:point[1],r:6/scale,fill:candidate?'#fff4db':'#d9efe0',
-    stroke:candidate?'#aa561d':'#17764a','stroke-width':2/scale},host);
+   node('circle',{cx:point[0],cy:point[1],screen:{r:6},fill:candidate?'#fff4db':'#d9efe0',
+    stroke:candidate?'#aa561d':'#17764a','stroke-width':2,'vector-effect':'non-scaling-stroke'},host);
   }
   for(const road of preview.roads)node('path',{d:pathData(road.points),fill:'none',
    stroke:full?(road.type==='highway'?'#17764a':road.type==='arterial'?'#aa561d':'#276875'):roadInfo(road.type).color,
@@ -1463,13 +1541,13 @@ function renderMasterPlan(){
    'data-plan-road':road.type,
    'stroke-dasharray':road.structure==='elevated'?`${8/scale} ${5/scale}`:'none',
    'stroke-linecap':'round','stroke-linejoin':'round'},host);
-  for(const point of preview.externalConnections||[])node('circle',{cx:point[0],cy:point[1],r:4.5/scale,
-   fill:'#f0ad5d',stroke:'#634226','stroke-width':1.4/scale},host);
+  for(const point of preview.externalConnections||[])node('circle',{cx:point[0],cy:point[1],screen:{r:4.5},
+   fill:'#f0ad5d',stroke:'#634226','stroke-width':1.4,'vector-effect':'non-scaling-stroke'},host);
  }
  if(full)for(const [kind,,name,color]of visibleMasterPins($('masterPlanMode').value)){
   for(const [index,point]of masterPins(session,kind).entries()){
-   node('circle',{cx:point[0],cy:point[1],r:6/scale,fill:color,stroke:'#fff','stroke-width':1.5/scale},host);
-   label(name+' '+(index+1),[point[0],point[1]-9/scale],color,host,11);
+   node('circle',{cx:point[0],cy:point[1],screen:{r:6},fill:color,stroke:'#fff','stroke-width':1.5,'vector-effect':'non-scaling-stroke'},host);
+   label(name+' '+(index+1),point,color,host,11,-9);
   }
  }
 }
@@ -2336,3 +2414,6 @@ bindAssetExtractor(window.mapDesktop,(packs,models)=>{
  const loaded=models.length?registerMapLods(models,packs):0;
  toast(message+(loaded?'，已载入 '+loaded+' 组 3D 模型':''));
 });
+if(window.mapDesktop?.presetBuildingFiles){
+ loadPresetBuildingPacks().catch(error=>toast('无法读取预置投影：'+(error.message||error)));
+}

@@ -61,3 +61,28 @@ test('asset cleanup protects placements by default and only removes explicitly s
  const unused=removeProjectAssetPacks(project,['b']);assert.deepEqual(unused.assetPacks,[{id:'a'}]);assert.equal(unused.features.length,2);
  const removed=removeProjectAssetPacks(project,['a'],{removePlaced:true});assert.deepEqual(removed.assetPacks,[{id:'b'}]);assert.deepEqual(removed.features,[{id:'road',kind:'road'}]);assert.equal(project.features.length,2);assert.equal(project.assetPacks.length,2);
 });
+
+test('shared projections merge by ID while saves keep only the used preset definitions',async()=>{
+ const {addPresetBuildingPacks,includePlacedAsset}=await import('../src/building-assets.js');
+ const pack={id:'test-shared-projections',name:'共享投影测试',author:'测试作者',
+  modUrl:'https://mods.paradoxplaza.com/mods/12345/Windows',assets:[BUILTIN_BUILDING_PACKS[0].assets[0]]};
+ const other=BUILTIN_BUILDING_PACKS[0].assets[1];
+ addPresetBuildingPacks(readBuildingLibrary({format:'cs2-building-assets',version:1,packs:[pack]}));
+ addPresetBuildingPacks(readBuildingLibrary({format:'cs2-building-assets',version:1,packs:[{...pack,assets:[pack.assets[0],other]}]}));
+
+ const project=initialProject(), find=p=>buildingPacksFor(p).find(item=>item.id===pack.id);
+ assert.equal(find(project).assets.length,2);
+ assert.deepEqual((await unpackProject(packProject(project))).project.assetPacks,[]);
+
+ const shared=find(project), asset=shared.assets[0];
+ const placed=makeBuildingAssetFeature(shared,asset,[4000,5000],0,'shared-building');
+ const saved=await unpackProject(packProject({...includePlacedAsset(project,shared,asset),features:[placed]}));
+ assert.equal(saved.project.assetPacks[0].assets.length,1);
+ assert.equal(saved.project.assetPacks[0].author,pack.author);
+ assert.equal(saved.project.assetPacks[0].modUrl,pack.modUrl);
+ assert.equal(saved.project.features[0].assetPlacement.assetId,asset.id);
+ saved.project.assetPacks[0].assets[0].name='工程内的定义';
+ assert.equal(find(saved.project).assets[0].name,'工程内的定义');
+ assert.equal(find(saved.project).assets.length,2);
+ assert.equal(find(initialProject()).assets[0].name,asset.name);
+});

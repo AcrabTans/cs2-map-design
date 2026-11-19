@@ -1,7 +1,6 @@
 import {openThirdPartyCok,parsePrefab,parseBinaryPrefab,decodeCokGeometry} from './cok-format.js';
-import {readBuildingLibrary} from './building-assets.js';
+import {packAttribution,paradoxModUrl,readBuildingLibrary} from './building-assets.js';
 import {buildCokLod,combineCokLods,encodeCokLod} from './cok-lod.js';
-import {readCokLodGlb} from './lod-glb.js';
 
 export const isOfficialModAuthor=author=>author?.trim().toLowerCase()==='cities: skylines official';
 
@@ -35,7 +34,8 @@ function addCokLabels(data,labels){
  }
 }
 
-async function readCokPackage({file,companions=[],locale=null}){
+async function readCokPackage({file,companions=[],locale=null,name:sourceName},checkpoint=()=>{}){
+ await checkpoint();
  const archives=await Promise.all([file,...companions].map(openThirdPartyCok));
  const entries=new Map(),references=new Map(),prefabs=new Map(),labels=new Map();
  const labelArchives=[...archives];
@@ -45,6 +45,7 @@ async function readCokPackage({file,companions=[],locale=null}){
  const metadata=[...entries.keys()].filter(name=>/\.(cid|Prefab)$/.test(name));
  let unread=0;
  for(let i=0;i<metadata.length;i+=12){
+  await checkpoint();
   await Promise.all(metadata.slice(i,i+12).map(async name=>{
    try{
     const data=await read(name);
@@ -55,6 +56,7 @@ async function readCokPackage({file,companions=[],locale=null}){
  }
  for(const archive of labelArchives)for(const name of archive.entries.keys()){
   if(!name.endsWith('.loc')||archive===labelArchives.at(-1)&&labelArchives.length>archives.length&&!/zh-HANS/.test(name))continue;
+  await checkpoint();
   try{addCokLabels(await archive.read(name),labels);}catch{/* A broken label does not affect the model. */}
  }
  const ref=value=>references.get(value?.$fstrref?.replace(/^CID:/,'')),assets=[],names=[],otherAssets=[];
@@ -113,7 +115,9 @@ async function readCokPackage({file,companions=[],locale=null}){
  const compare=(a,b)=>a.localeCompare(b,'zh');
  assets.sort((a,b)=>compare(a.code,b.code));
  names.sort(compare);otherAssets.sort((a,b)=>compare(a.type,b.type)||compare(a.name,b.name));
- return {archive:{entries,read},assets,summary:{names,otherAssets,buildingCount:names.length,supported:assets.length,
+ const originalName=sourceName||cokPackageName(file.name)||file.name;
+ const name=names.length===1?names[0].trim()||originalName:originalName;
+ return {archive:{entries,read},assets,summary:{name,names,otherAssets,buildingCount:names.length,supported:assets.length,
   notes:[external&&external+' 栋引用包外游戏本体模型',missing&&missing+' 栋缺少包内主模型',unread&&unread+' 条定义无法读取']
    .filter(Boolean)}};
 }
@@ -122,10 +126,11 @@ export async function inspectCokPackage(input){
  return (await readCokPackage(input)).summary;
 }
 
-async function buildCokProjection(archive,meshes,codecs){
+async function buildCokProjection(archive,meshes,codecs,checkpoint){
  const parts=[];
  let triangleCount=0,vertexBytes=0,minHeight=Infinity,maxHeight=-Infinity;
  for(const {geometry,rotation,position} of meshes){
+  await checkpoint();
   const norm=Math.hypot(...rotation);
   if(!norm||!position.every(Number.isFinite))throw Error('模型变换无效');
   const [qx,qy,qz,qw]=rotation.map(v=>v/norm);
@@ -154,6 +159,7 @@ async function buildCokProjection(archive,meshes,codecs){
   triangles[length++]=ax;triangles[length++]=ay;triangles[length++]=bx;
   triangles[length++]=by;triangles[length++]=cx;triangles[length++]=cy;
  }
+ await checkpoint();
  const projection=await codecs.project(new Uint8Array(triangles.buffer,0,length*8));
  return {...projection,height:Math.round((maxHeight-minHeight)*10000)/10000};
 }
@@ -164,17 +170,19 @@ function projectionLibrary(packs){
  return new TextEncoder().encode(JSON.stringify(library));
 }
 
-async function processCokPackage(input,codecs,{formats,save,onProgress}){
- const {archive,assets,summary}=await readCokPackage(input);
+async function processCokPackage(input,codecs,{formats,save,onProgress,checkpoint=()=>{}}){
+ const {archive,assets,summary}=await readCokPackage(input,checkpoint);
  if(!assets.length)throw Error(summary.notes.join('，')||'未找到可提取的包内建筑模型');
- const name=input.name||cokPackageName(input.file.name);
+ const {name}=summary;
  const identity=new TextEncoder().encode(JSON.stringify([input.file.name,assets.map(asset=>asset.code).sort()]));
  const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',identity));
  const token=Array.from(digest.subarray(0,8),x=>x.toString(16).padStart(2,'0')).join('');
- const pack={id:'cok-'+token,name,assetGroup:isOfficialModAuthor(input.author)?'official':'third-party'};
+ const pack={id:'cok-'+token,name,assetGroup:isOfficialModAuthor(input.author)?'official':'third-party',
+  ...packAttribution({author:input.author,modUrl:paradoxModUrl(input.modId)})};
  const safe=[...name.replace(/[<>:"/\\|?*\x00-\x1f]/g,'_')].slice(0,90).join('').replace(/[ .]+$/,'')||'资产包';
  const stem=safe+'-'+token,results=[];
  for(const format of formats){
+  await checkpoint();
   const progress=(done,total)=>onProgress(format,done,total);
   try{
    let contents;
@@ -182,49 +190,36 @@ async function processCokPackage(input,codecs,{formats,save,onProgress}){
     const projections=[];
     progress(0,assets.length);
     for(const {meshes,...asset} of assets){
-     try{projections.push({...asset,...await buildCokProjection(archive,meshes,codecs)});}
-     catch(error){throw Error(asset.code+'：'+(error.message||error));}
+     try{projections.push({...asset,...await buildCokProjection(archive,meshes,codecs,checkpoint)});}
+     catch(error){if(error.name==='AbortError')throw error;throw Error(asset.code+'：'+(error.message||error));}
      progress(projections.length,assets.length);
     }
     const projection={...pack,assets:projections};
     readBuildingLibrary({format:'cs2-building-assets',version:1,packs:[projection]});
     contents={projection,count:projections.length,missing:0};
    }else{
-    contents=await buildCokLod(archive,assets,pack,format,codecs,progress);
+    contents=await buildCokLod(archive,assets,pack,format,codecs,progress,checkpoint);
    }
+   await checkpoint();
    results.push({format,...await save(format,stem,pack,contents),count:contents.count,missing:contents.missing});
-  }catch(error){results.push({format,error:String(error.message||error)});}
+  }catch(error){if(error.name==='AbortError')throw error;results.push({format,error:String(error.message||error)});}
  }
  return {results,notes:summary.notes};
 }
 
-export function extractCokPackage(input,codecs,{formats,write,onProgress}){
- return processCokPackage(input,codecs,{formats,onProgress,save:async(format,stem,pack,contents)=>{
+export function extractCokPackage(input,codecs,{formats,write,onProgress,checkpoint}){
+ return processCokPackage(input,codecs,{formats,onProgress,checkpoint,save:async(format,stem,pack,contents)=>{
   const projection=format==='projection';
   const filename=stem+(projection?'.cs2assets':'-'+format+'.glb');
   return {name:await write(filename,projection?projectionLibrary([contents.projection]):encodeCokLod(contents))};
  }});
 }
 
-export async function extractCokForMap(input,codecs,{formats,onProgress}){
- let projection;
- const lods=[];
- function* mapFormats(){
-  yield 'projection';
-  if(projection)yield* formats.filter(format=>format!=='projection');
- }
- const outcome=await processCokPackage(input,codecs,{formats:mapFormats(),onProgress,save(format,stem,pack,contents){
-  if(format==='projection')projection=contents.projection;
-  else lods.push(readCokLodGlb(encodeCokLod(contents)));
- }});
- return {...outcome,projection,lods};
-}
-
 export function createCokBatch(write){
  const groups=new Map();
  return {
-  collect(input,codecs,{formats,onProgress}){
-   return processCokPackage(input,codecs,{formats,onProgress,save(format,stem,pack,contents){
+  collect(input,codecs,{formats,onProgress,checkpoint}){
+   return processCokPackage(input,codecs,{formats,onProgress,checkpoint,save(format,stem,pack,contents){
     if(!groups.has(format))groups.set(format,{parts:[],ids:new Set(),length:0,tooLarge:false});
     const group=groups.get(format);
     if(group.ids.has(pack.id))throw Error('建筑资产包编号重复，已收录一个副本');
@@ -234,9 +229,10 @@ export function createCokBatch(write){
     group.parts.push(contents);group.ids.add(pack.id);
    }});
   },
-  async finish(onFormat){
+  async finish(onFormat,checkpoint=()=>{}){
    const results=[];
    for(const [format,group] of groups){
+    await checkpoint();
     onFormat(format);
     try{
      if(group.tooLarge)throw Error('合并后的三维模型超过大小上限，请减少所选包或分别输出');
@@ -244,7 +240,7 @@ export function createCokBatch(write){
      const name='合并资产包'+(projection?'.cs2assets':'-'+format+'.glb');
      const bytes=projection?projectionLibrary(parts.map(part=>part.projection)):encodeCokLod(combineCokLods(parts));
      results.push({format,name:await write(name,bytes),count:parts.reduce((n,p)=>n+p.count,0),missing:parts.reduce((n,p)=>n+p.missing,0),packs:parts.length});
-    }catch(error){results.push({format,error:String(error.message||error)});}
+    }catch(error){if(error.name==='AbortError')throw error;results.push({format,error:String(error.message||error)});}
     groups.delete(format);
    }
    return results;

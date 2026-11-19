@@ -1,9 +1,11 @@
 import {decodeCokGeometry} from './cok-format.js';
 
-export async function buildCokLod(archive,assets,pack,level,codecs,onProgress){
+export async function buildCokLod(archive,assets,pack,level,codecs,onProgress,checkpoint=()=>{}){
  const doc={asset:{version:'2.0',generator:'CS2 Map Design'},scene:0,scenes:[],nodes:[],meshes:[],accessors:[],bufferViews:[],buffers:[],
   materials:[{pbrMetallicRoughness:{baseColorFactor:[.65,.72,.74,1],metallicFactor:0},doubleSided:true}],
   extras:{format:'cs2-building-lod',version:1,packId:pack.id,packName:pack.name,lod:level,units:'metres',coordinates:'right-handed Y-up; Z=-gameZ',assets:[]}};
+ if(pack.author)doc.extras.packAuthor=pack.author;
+ if(pack.modUrl)doc.extras.modUrl=pack.modUrl;
  const stem=name=>name.replace(/(?:_[\da-f]{30,32})?\.Geometry$/i,'');
  const index=new Map(),shared=new Map(),buffers=[];
  for(const name of archive.entries.keys()){
@@ -53,12 +55,14 @@ export async function buildCokLod(archive,assets,pack,level,codecs,onProgress){
  }
  onProgress(0,assets.length);
  for(const {meshes,...asset} of assets){
+  await checkpoint();
   const matched=meshes.map(item=>item.lods?.[level]?[item.lods[level]]:index.get(stem(item.geometry).replace(/_LOD0$/i,'')+'_'+level.toUpperCase())||[]);
   const missingMainMeshes=meshes.filter((_,i)=>matched[i].length!==1).map(item=>item.geometry);
   const status=missingMainMeshes.length?'missing':'available';
   const children=[];
   if(status==='available'){
    for(const [i,item] of meshes.entries()){
+    await checkpoint();
     const [x,y,z]=item.position,[qx,qy,qz,qw]=item.rotation,norm=Math.hypot(qx,qy,qz,qw);
     if(!norm||!item.position.every(Number.isFinite))throw Error(asset.code+' 模型变换无效');
     children.push(doc.nodes.push({mesh:await mesh(matched[i][0]),translation:[x,y,-z],rotation:[-qx/norm,-qy/norm,qz/norm,qw/norm]})-1);
@@ -80,6 +84,10 @@ export function combineCokLods(parts){
  const first=parts[0].doc,extras={...first.extras,assets:[]};
  delete extras.packId;
  delete extras.packName;
+ delete extras.packAuthor;
+ delete extras.modUrl;
+ extras.packSources=parts.map(({doc:{extras:{packId,packName,packAuthor,modUrl}}})=>
+  ({id:packId,name:packName,author:packAuthor,modUrl}));
  const doc={...first,extras,nodes:[],scenes:[],meshes:[],accessors:[],bufferViews:[]};
  const buffers=[];
  let length=0,count=0,missing=0;

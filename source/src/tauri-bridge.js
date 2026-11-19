@@ -35,6 +35,7 @@ if (window.__TAURI__) {
       await invoke('enable_close_guard');
     },
     openReference:key=>invoke('open_reference',{key}),
+    openModPage:id=>invoke('open_mod_page',{id}),
     confirmDiscard:() => invoke('confirm_discard'),
     exit:() => invoke('exit_app'),
     setTitle:title => invoke('update_title', {title}),
@@ -55,9 +56,10 @@ if (window.__TAURI__) {
       return invoke('write_extracted_asset',bytes,{headers:{'X-File-Token':directory}});
     },
     assetEntries:id => invoke('directory_entries', {id,assetScan:true}),
-    assetCacheAuthors:id => invoke('asset_cache_authors', {id}),
+    assetCacheMods:id => invoke('asset_cache_mods', {id}),
     entries:id => invoke('directory_entries', {id,assetScan:false}),
     presetLodFiles:() => invoke('preset_lod_files'),
+    presetBuildingFiles:() => invoke('preset_building_files'),
     child:(id,name,kind,create) => invoke('directory_child', {id,name,kind,create})
   };
 }

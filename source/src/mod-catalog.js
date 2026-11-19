@@ -5,28 +5,30 @@ const isCokFile=entry=>entry.kind==='file'&&/\.cok$/i.test(entry.name);
 const modVersion=name=>/^(\d+)_(\d+)$/.exec(name);
 const modNameSort=(a,b)=>a.name.localeCompare(b.name,'zh');
 const modEntries=(api,folder)=>(api.assetEntries||api.entries)(folder.id);
+const cokSourceName=file=>cokPackageName(file.name)||file.name;
 
-async function catalogPackage(input,{mod='',code=false,author=''}={}){
+async function catalogPackage(input,{mod='',modId='',code=false,author=''}={}){
  const {file,name}=input;
  try{
   const summary=await inspectCokPackage(input);
   const type=summary.buildingCount?'建筑资产':summary.otherAssets.length?'其他资产':'COK 资源';
-  return {id:file.nativeId,name,mod,code,author,type,size:file.size,input,...summary};
+  return {id:file.nativeId,mod,modId,code,author,type,size:file.size,input,...summary};
  }catch(error){
-  return {id:file.nativeId,name,mod,code,author,type:'读取失败',size:file.size,notes:[String(error.message||error)]};
+  return {id:file.nativeId,name,mod,code,author,type:'读取失败',size:file.size,input,notes:[String(error.message||error)]};
  }
 }
 
 export async function inspectDesktopCokFiles(files){
  const rows=[];
  for(const file of files.filter(isCokFile).sort(modNameSort)){
-  const source=desktopFile(file);
-  rows.push(await catalogPackage({file:source,name:cokPackageName(source.name)||source.name}));
+  const meta=file.modMetadata;
+  rows.push(await catalogPackage({file:desktopFile(file),name:meta?.title||cokSourceName(file)},
+   {mod:meta?meta.id+' / '+meta.version:'',modId:meta?.id,author:meta?.author}));
  }
  return rows;
 }
 
-function packageInputs(entries,title){
+function packageInputs(entries){
  const coks=entries.filter(isCokFile).sort(modNameSort),byName=new Map(coks.map(f=>[f.name.toLowerCase(),f]));
  const companions=new Map(),used=new Set();
  for(const file of coks){
@@ -38,7 +40,7 @@ function packageInputs(entries,title){
  const sources=coks.filter(f=>!used.has(f)&&f.name.toLowerCase()!=='locale.cok');
  const locale=byName.get('locale.cok');
  return sources.map(file=>({file:desktopFile(file),companions:(companions.get(file)||[]).map(desktopFile),
-  locale:locale?desktopFile(locale):null,name:sources.length===1&&title||cokPackageName(file.name)||file.name}));
+  locale:locale?desktopFile(locale):null,name:cokSourceName(file)}));
 }
 
 async function readModManifest(api,entries){
@@ -56,35 +58,38 @@ async function readModManifest(api,entries){
  }catch{return {};}
 }
 
-async function scanModFolder(api,folder,topEntries,exactAuthor,uniqueAuthor){
+async function scanModFolder(api,folder,topEntries,cached,uniqueAuthor){
  const dir=topEntries||await modEntries(api,folder),meta=await readModManifest(api,dir),files=[];
  const packages=[];
- async function collect(entries,top){
+ async function collect(entries){
   files.push(...entries.filter(entry=>entry.kind==='file'));
-  packages.push(...packageInputs(entries,top?meta.title:''));
+  packages.push(...packageInputs(entries));
   if(topEntries)return;
   for(const child of entries.filter(entry=>entry.kind==='directory'&&!entry.name.startsWith('.')))
-   await collect(await modEntries(api,child),false);
+   await collect(await modEntries(api,child));
  }
- await collect(dir,true);
+ await collect(dir);
  const version=modVersion(folder.name),mod=version?version[1]+' / '+version[2]:folder.name;
  const program=files.find(f=>/\.dll$/i.test(f.name)&&!/_x86_64\.dll$/i.test(f.name));
  const code=meta.code||files.some(f=>/\.dll$/i.test(f.name));
- const author=exactAuthor||meta.author||uniqueAuthor||'';
- if(packages.length)return Promise.all(packages.map(input=>catalogPackage(input,{mod,code,author})));
+ const author=cached?.author||meta.author||uniqueAuthor||'';
+ const title=cached?.title||meta.title;
+ if(packages.length===1&&title)packages[0].name=title;
+ if(packages.length)return Promise.all(packages.map(input=>catalogPackage(input,{mod,modId:cached?.id,code,author})));
  if(topEntries&&!files.length)return [];
  const loose=files.some(f=>/\.prefab$/i.test(f.name));
- return [{id:folder.id,name:meta.title||program?.name.replace(/\.dll$/i,'')||folder.name,mod,
+ return [{id:folder.id,name:title||program?.name.replace(/\.dll$/i,'')||folder.name,mod,
   type:code?'代码 Mod':loose?'其他资产':'其他 Mod',code,author,notes:loose?['发现散装 Prefab，当前从 .cok 提取。']:[]}];
 }
 
 export async function scanDesktopMods(api,root,onProgress){
- const authorsRequest=api.assetCacheAuthors?.(root.id).catch(()=>[])||[];
- const [entries,authors]=await Promise.all([modEntries(api,root),authorsRequest]);
- const exactAuthors=new Map(),authorsById=new Map(),latest=new Map(),folders=[];
- for(const {id,version,author} of authors){
+ const metadataRequest=api.assetCacheMods?.(root.id).catch(()=>[])||[];
+ const [entries,metadata]=await Promise.all([modEntries(api,root),metadataRequest]);
+ const exactMetadata=new Map(),authorsById=new Map(),latest=new Map(),folders=[];
+ for(const record of metadata){
+  const {id,version,author}=record;
+  exactMetadata.set(id+'_'+version,record);
   if(!author)continue;
-  exactAuthors.set(id+'_'+version,author);
   if(!authorsById.has(id))authorsById.set(id,new Set());
   authorsById.get(id).add(author);
  }
@@ -105,11 +110,11 @@ export async function scanDesktopMods(api,root,onProgress){
  const worker=async()=>{
   while(next<groups.length){
    const i=next++,group=groups[i];
-   const exactAuthor=exactAuthors.get(group.folder.name),known=authorsById.get(modVersion(group.folder.name)?.[1]);
+   const cached=exactMetadata.get(group.folder.name),known=authorsById.get(modVersion(group.folder.name)?.[1]);
    const uniqueAuthor=known?.size===1?[...known][0]:'';
-   try{batches[i]=await scanModFolder(api,group.folder,group.entries,exactAuthor,uniqueAuthor);}
+   try{batches[i]=await scanModFolder(api,group.folder,group.entries,cached,uniqueAuthor);}
    catch(error){batches[i]=[{id:group.folder.id,name:group.folder.name,mod:group.folder.name,
-    author:exactAuthor||uniqueAuthor,type:'读取失败',notes:[String(error.message||error)]}];}
+    author:cached?.author||uniqueAuthor,type:'读取失败',notes:[String(error.message||error)]}];}
    onProgress(++done,groups.length);
   }
  };

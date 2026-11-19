@@ -1,6 +1,18 @@
 import {BUILTIN_BUILDING_PACKS} from './building-asset-data.js';
 const buildingAssetTypes=['education','residential','hospital','police','fire','municipal','industry','commercial','sports','landscape','other'];
 const validPopulationCapacity=v=>v===undefined||v===null||(Number.isSafeInteger(v)&&v>=0);
+export function paradoxModUrl(id) {
+ return typeof id==='string'&&/^\d{1,20}$/.test(id)?'https://mods.paradoxplaza.com/mods/'+id+'/Windows':'';
+}
+export function paradoxModId(url) {
+ return typeof url==='string'?/^https:\/\/mods\.paradoxplaza\.com\/mods\/(\d{1,20})\/Windows$/.exec(url)?.[1]:'';
+}
+export function packAttribution({author,modUrl}) {
+ return {
+  ...(typeof author==='string'&&author.trim()?{author:author.trim()}:{}),
+  ...(paradoxModId(modUrl)?{modUrl}:{})
+ };
+}
 export function validateBuildingPacks(packs=[]){
  if(!Array.isArray(packs)||packs.length>20000)throw Error('建筑资产包数量无效');
  const ids=new Set();let total=0,vertices=0;
@@ -14,10 +26,55 @@ export function validateBuildingPacks(packs=[]){
    vertices+=a.rings.reduce((n,r)=>n+r.length,0);if(vertices>2000000)throw Error('建筑资产库数据过大');
   }
  }
- return structuredClone(packs.map(({lods,...p})=>p)).map(p=>({...p,assets:p.assets.map(a=>({...a,maxResidents:a.maxResidents??null,maxEmployees:a.maxEmployees??null}))}));
+ return structuredClone(packs.map(({lods,author,modUrl,...p})=>({...p,...packAttribution({author,modUrl})})))
+  .map(p=>({...p,assets:p.assets.map(a=>({...a,maxResidents:a.maxResidents??null,maxEmployees:a.maxEmployees??null}))}));
 }
-export function buildingPacksFor(project){const merged=new Map(BUILTIN_BUILDING_PACKS.map(p=>[p.id,p]));for(const p of project.assetPacks||[]){const builtin=merged.get(p.id);if(!builtin){merged.set(p.id,p);continue;}const assets=new Map(builtin.assets.map(a=>[a.id,a]));for(const a of p.assets){const b=assets.get(a.id);assets.set(a.id,b?{...b,...a,...(!a.catalogCategory?{type:b.type,catalogCategory:b.catalogCategory,catalogLabel:b.catalogLabel,catalogSubcategory:b.catalogSubcategory}:{})}:a);}merged.set(p.id,{...builtin,...p,assets:[...assets.values()]});}return [...merged.values()];}
-export function includePlacedAsset(project,pack,asset){const packs=[...(project.assetPacks||[])],i=packs.findIndex(p=>p.id===pack.id);if(i>=0&&packs[i].assets.some(a=>a.id===asset.id))return project;const old=i>=0?packs[i]:{id:pack.id,name:pack.name,assets:[]},next={...old,assets:[...old.assets,asset]};if(i>=0)packs[i]=next;else packs.push(next);return {...project,assetPacks:packs};}
+const builtinBuildingPacks = new Map(BUILTIN_BUILDING_PACKS.map(pack => [pack.id, pack]));
+const sharedBuildingPacks = new Map(builtinBuildingPacks);
+
+function mergeBuildingPack(packs, pack) {
+ const previous = packs.get(pack.id);
+ if (!previous) {
+  packs.set(pack.id, pack);
+  return;
+ }
+ const assets = new Map(previous.assets.map(asset => [asset.id, asset]));
+ for (const asset of pack.assets) {
+  const original = assets.get(asset.id);
+  const category = original && previous.builtin && !asset.catalogCategory
+   ? {type: original.type, catalogCategory: original.catalogCategory,
+      catalogLabel: original.catalogLabel, catalogSubcategory: original.catalogSubcategory}
+   : {};
+  assets.set(asset.id, original ? {...original, ...asset, ...category} : asset);
+ }
+ packs.set(pack.id, {...previous, ...pack, assets: [...assets.values()]});
+}
+
+export function addPresetBuildingPacks(packs) {
+ for (const pack of packs) {
+  const {id,name,assets,assetGroup}=pack;
+  mergeBuildingPack(sharedBuildingPacks, {id,name,assets,assetGroup,...packAttribution(pack)});
+ }
+}
+
+export function buildingPacksFor(project, {includePresets = true} = {}) {
+ const merged = new Map(includePresets ? sharedBuildingPacks : builtinBuildingPacks);
+ for (const pack of project.assetPacks || []) mergeBuildingPack(merged, pack);
+ return [...merged.values()];
+}
+
+export function includePlacedAsset(project, pack, asset) {
+ const packs = [...(project.assetPacks || [])];
+ const index = packs.findIndex(p => p.id === pack.id);
+ const existing = packs[index];
+ if (existing?.assets.some(a => a.id === asset.id)) return project;
+ const entry = existing || {id: pack.id, name: pack.name, ...packAttribution(pack),
+  ...(pack.assetGroup ? {assetGroup: pack.assetGroup} : {}), assets: []};
+ const next = {...entry, assets: [...entry.assets, asset]};
+ if (existing) packs[index] = next;
+ else packs.push(next);
+ return {...project, assetPacks: packs};
+}
 export function readBuildingLibrary(data){if(data?.format!=='cs2-building-assets'||data.version!==1||!data.packs?.length)throw Error('请选择包含建筑的 .cs2assets 资产库文件');return validateBuildingPacks(data.packs);}
 export function catalogPage(pack,{category='all',query='',page=0,pageSize=32}={}){const q=query.trim().toLowerCase(),filtered=pack.assets.filter(a=>(category==='all'||(a.catalogCategory||a.type)===category)&&(!q||[a.name,a.code,a.catalogLabel,a.catalogSubcategory].join(' ').toLowerCase().includes(q)));const pages=Math.max(1,Math.ceil(filtered.length/pageSize)),index=Math.max(0,Math.min(page,pages-1));return {assets:filtered.slice(index*pageSize,(index+1)*pageSize),total:filtered.length,page:index,pages};}
 export const buildingAngle=v=>((v%360)+360)%360;
@@ -57,15 +114,14 @@ export async function readAssetSelection(files){
   if(file.size>256*1024*1024)throw Error('投影文件过大');
   packs.push(...readBuildingLibrary(JSON.parse(await file.text())));
  }
- return validateBuildingPacks(packs);
+ return files.length === 1 ? packs : validateBuildingPacks(packs);
 }
 
 // A matching built-in projection is already available by pack and asset ID.
 export function projectAssetPacksForSave(packs){
- const builtins=new Map(BUILTIN_BUILDING_PACKS.map(pack=>[pack.id,pack]));
  const saved=[];
  for(const pack of packs){
-  const builtin=builtins.get(pack.id);
+  const builtin=builtinBuildingPacks.get(pack.id);
   if(!builtin){saved.push(pack);continue;}
   const definitions=new Map(builtin.assets.map(asset=>[asset.id,asset]));
   const assets=pack.assets.filter(asset=>{

@@ -26,6 +26,10 @@ pub struct FileInfo {
     name: String,
     kind: &'static str,
     size: u64,
+    #[serde(rename = "modMetadata", skip_serializing_if = "Option::is_none")]
+    mod_metadata: Option<CachedMod>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
 }
 
 fn io_error(error: std::io::Error) -> String { error.to_string() }
@@ -42,6 +46,8 @@ impl Grant {
             name: self.path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
             kind: if self.directory { "directory" } else { "file" },
             size,
+            mod_metadata: None,
+            path: None,
         })
     }
 
@@ -100,9 +106,25 @@ pub async fn pick_files(kind: String, grants: State<'_, FileGrants>) -> Result<O
             dialog().add_filter("地图工程", &["cs2map", "cs2plan", "json"]).pick_file().map(|p| vec![p])
         }
     }).await.map_err(|e| e.to_string())?;
-    selected.map(|paths| paths.into_iter().map(|p| {
-        grants.grant(p.canonicalize().map_err(io_error)?, false, kind == "project")
-    }).collect()).transpose()
+    selected.map(|paths| {
+        let mut caches = HashMap::new();
+        paths.into_iter().map(|path| {
+            let path = path.canonicalize().map_err(io_error)?;
+            let mut info = grants.grant(path.clone(), false, kind == "project")?;
+            if cok {
+                info.mod_metadata = path.parent().and_then(|folder| {
+                    let (cache_dir, id, version) = cached_mod_folder(folder)?;
+                    let records = caches.entry(cache_dir.to_path_buf())
+                        .or_insert_with(|| read_mod_cache(cache_dir).unwrap_or_default());
+                    Some(records.iter().find(|record| record.id == id && record.version == version).cloned()
+                        .unwrap_or_else(|| CachedMod {
+                            id: id.to_owned(), version: version.to_owned(), author: String::new(), title: String::new(),
+                        }))
+                });
+            }
+            Ok(info)
+        }).collect()
+    }).transpose()
 }
 
 #[tauri::command]
@@ -120,7 +142,11 @@ pub async fn pick_directory(asset_scan: Option<bool>, grants: State<'_, FileGran
         picker.pick_folder()
     })
         .await.map_err(|e| e.to_string())?;
-    selected.map(|p| grants.grant(p.canonicalize().map_err(io_error)?, true, !scan)).transpose()
+    selected.map(|p| {
+        let mut info = grants.grant(p.canonicalize().map_err(io_error)?, true, !scan)?;
+        info.path = Some(p.to_string_lossy().into_owned());
+        Ok(info)
+    }).transpose()
 }
 
 #[tauri::command]
@@ -147,6 +173,15 @@ pub fn file_stat(id: String, grants: State<'_, FileGrants>) -> Result<FileInfo> 
 
 #[tauri::command]
 pub fn preset_lod_files(grants: State<'_, FileGrants>) -> Result<Vec<FileInfo>> {
+    preset_files("glb", &grants)
+}
+
+#[tauri::command]
+pub fn preset_building_files(grants: State<'_, FileGrants>) -> Result<Vec<FileInfo>> {
+    preset_files("cs2assets", &grants)
+}
+
+fn preset_files(extension: &str, grants: &FileGrants) -> Result<Vec<FileInfo>> {
     let executable = std::env::current_exe().and_then(|path| path.canonicalize()).map_err(io_error)?;
     let directory = executable.parent().ok_or("无法定位程序目录")?.join("lod");
     let resolved = match directory.canonicalize() {
@@ -154,12 +189,12 @@ pub fn preset_lod_files(grants: State<'_, FileGrants>) -> Result<Vec<FileInfo>> 
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(io_error(error)),
     };
-    if resolved != directory { return Err("请将 LOD 文件放在程序目录内的 lod 文件夹".into()); }
+    if resolved != directory { return Err("请将预置资产放在程序目录内的 lod 文件夹".into()); }
     let mut paths = Vec::new();
     for entry in fs::read_dir(&directory).map_err(io_error)? {
         let entry = entry.map_err(io_error)?;
         let path = entry.path();
-        if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("glb")) && entry.file_type().map_err(io_error)?.is_file() {
+        if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case(extension)) && entry.file_type().map_err(io_error)?.is_file() {
             paths.push(path);
         }
     }
@@ -225,15 +260,33 @@ pub fn directory_entries(id: String, asset_scan: Option<bool>, grants: State<'_,
 }
 
 #[tauri::command]
-pub fn asset_cache_authors(id: String, grants: State<'_, FileGrants>) -> Result<Vec<ModAuthor>> {
+pub fn asset_cache_mods(id: String, grants: State<'_, FileGrants>) -> Result<Vec<CachedMod>> {
     let grant = grants.get(&id)?;
-    let Some(parent) = grant.path.parent() else { return Ok(Vec::new()); };
-    if !grant.directory || !grant.path.file_name().is_some_and(|name| name.eq_ignore_ascii_case("pdx_mods"))
-        || !parent.file_name().is_some_and(|name| name.eq_ignore_ascii_case("Mods")) {
-        return Ok(Vec::new());
-    }
+    if !grant.directory { return Ok(Vec::new()); }
     if grant.path.canonicalize().map_err(io_error)? != grant.path { return Err("目录位置已改变".into()); }
-    let cache = parent.join("pdx_mods_cache.json");
+    if let Some(cache_dir) = mod_cache_directory(&grant.path) {
+        return read_mod_cache(cache_dir);
+    }
+    let Some((cache_dir, id, version)) = cached_mod_folder(&grant.path) else { return Ok(Vec::new()); };
+    Ok(read_mod_cache(cache_dir)?.into_iter()
+        .filter(|record| record.id == id && record.version == version).collect())
+}
+
+fn mod_cache_directory(root: &Path) -> Option<&Path> {
+    let parent = root.parent()?;
+    (root.file_name()?.eq_ignore_ascii_case("pdx_mods")
+        && parent.file_name()?.eq_ignore_ascii_case("Mods")).then_some(parent)
+}
+
+fn cached_mod_folder(folder: &Path) -> Option<(&Path, &str, &str)> {
+    let cache_dir = mod_cache_directory(folder.parent()?)?;
+    let (id, version) = folder.file_name()?.to_str()?.split_once('_')?;
+    let digits = |value: &str| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit());
+    (digits(id) && digits(version)).then_some((cache_dir, id, version))
+}
+
+fn read_mod_cache(cache_dir: &Path) -> Result<Vec<CachedMod>> {
+    let cache = cache_dir.join("pdx_mods_cache.json");
     let metadata = match fs::symlink_metadata(&cache) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -247,18 +300,21 @@ pub fn asset_cache_authors(id: String, grants: State<'_, FileGrants>) -> Result<
     File::open(cache).map_err(io_error)?.take(CACHE_LIMIT + 1).read_to_end(&mut bytes).map_err(io_error)?;
     if bytes.len() as u64 > CACHE_LIMIT { return Ok(Vec::new()); }
     let catalog: serde_json::Value = serde_json::from_slice(bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes))
-        .map_err(|_| "无法读取 Mod 作者索引")?;
+        .map_err(|_| "无法读取 Mod 缓存索引")?;
     let Some(items) = catalog.get("items").and_then(|items| items.as_array()) else { return Ok(Vec::new()); };
     Ok(items.iter().filter_map(|item| {
         let id = catalog_number(item.get("id")?)?;
         let version = item.get("version").and_then(catalog_number).unwrap_or_default();
-        let author = item.get("author")?.as_str()?.trim();
-        (!author.is_empty()).then(|| ModAuthor { id, version, author: author.to_owned() })
+        let author = item.get("author").and_then(|value| value.as_str()).unwrap_or("").trim();
+        let title = item.get("displayName").and_then(|value| value.as_str()).unwrap_or("").trim();
+        (!author.is_empty() || !title.is_empty()).then(|| CachedMod {
+            id, version, author: author.to_owned(), title: title.to_owned(),
+        })
     }).collect())
 }
 
-#[derive(serde::Serialize)]
-pub struct ModAuthor { id: String, version: String, author: String }
+#[derive(Clone, serde::Serialize)]
+pub struct CachedMod { id: String, version: String, author: String, title: String }
 
 fn catalog_number(value: &serde_json::Value) -> Option<String> {
     value.as_u64().map(|number| number.to_string()).or_else(|| {
