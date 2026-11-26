@@ -19,6 +19,7 @@ const desktopRuntime=(await read('src/desktop-runtime.js')).replace(/^export /gm
 const archiveSource=(await read('src/archive.js')).replace(/^export /gm,'');
 const projectFileSource=(await read('src/project-file.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
 const cartoExportSource=(await read('src/carto-export.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
+const mapDataExportSource=(await read('src/map-data-export.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
 const seedTerrainFiles={};if(seed)for(const r of seed.rasters||[]){try{const raw=seedDocument.terrainFiles.get(r.id);if(!raw)continue;seedTerrainFiles[r.id]={sha256:r.source?.sha256,previewFingerprint:terrainFingerprint(r.data),deflated:deflateSync(raw).toString('base64')};}catch{}}
 const projectSeedExtras=seed?'const SEED_FILE_NAME='+JSON.stringify(path.basename(options['--project']).replace(/\.json$/i,'.cs2map'))+';const SEED_TERRAIN_FILES='+JSON.stringify(seedTerrainFiles)+';\n':'';
 const projectFolderSource=(await read('src/project-folder.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
@@ -33,6 +34,7 @@ const networkDisplaySource=(await read('src/network-display.js')).replace(/^impo
 const networkCrossingsSource=(await read('src/network-crossings.js')).replace(/^export /gm,'');
 const editPerformanceSource=(await read('src/edit-performance.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
 const terrain=(await read('src/terrain.js')).replace(/^export /gm,'');
+const terrainContourSource=(await read('src/terrain-contours.js')).replace(/^export /gm,'');
 const carto=(await read('src/carto.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
 let fileStore=(await read('src/file-store.js')).replace(/^export /gm,'');
 const meshoptSource=(await read('../tools/资产提取器/依赖/vendor/meshopt_decoder.mjs')).replace(/^export .*?;\r?\n/gm,'');
@@ -57,7 +59,7 @@ const terrainCorrectionScript=seed&&terrainCorrection?'const TERRAIN_CORRECTION=
 const seedScript=seed?`const SEED_PROJECT=${JSON.stringify(seed).replaceAll('<','\\u003c')};\n`:'';
 html=html.replace('<link rel="stylesheet" href="style.css">',`<style>${await read('src/style.css')}</style>`).replace('<script type="module" src="app.js"></script>',()=>`<script type="module">const BASEMAPS=${JSON.stringify(images)};\nconst THREE_SOURCE=${threeSource};\n${seedScript}${projectSeedExtras}${terrainCorrectionScript}${buildingAssetData}
 ${tauriBridge}\n${desktopRuntime}\n${buildingAssetSource}
-${model}\n${archiveSource}\n${projectFileSource}\n${projectFolderSource}\n${planningSource}\n${masterPlanSource}\n${localBuildingRules}\n${localPlanSource}\n${cartoExportSource}\n${networkDisplaySource}\n${networkCrossingsSource}\n${editPerformanceSource}\n${terrain}\n${carto}\n${fileStore}\n${namingSource}\n${meshoptSource}\n${cokSource}\n${cokLodSource}\n${extractorSource}\n${modCatalogSource}\n${extractorPanelSource}\n${lodGlbSource}\n${view3dSource}\n${app}</script>`);
+${model}\n${archiveSource}\n${projectFileSource}\n${projectFolderSource}\n${planningSource}\n${masterPlanSource}\n${localBuildingRules}\n${localPlanSource}\n${cartoExportSource}\n${networkDisplaySource}\n${networkCrossingsSource}\n${editPerformanceSource}\n${terrain}\n${terrainContourSource}\n${mapDataExportSource}\n${carto}\n${fileStore}\n${namingSource}\n${meshoptSource}\n${cokSource}\n${cokLodSource}\n${extractorSource}\n${modCatalogSource}\n${extractorPanelSource}\n${lodGlbSource}\n${view3dSource}\n${app}</script>`);
 const output=path.resolve(root,options['--output']||'../index.html');
 await mkdir(path.dirname(output),{recursive:true});
 await writeFile(output,html);

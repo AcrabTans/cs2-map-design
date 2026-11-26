@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#142d32"><title>天际线Ⅱ地图规划设计器 · 绿色版</title><link rel="stylesheet" href="style.css"></head><body>
-<header class="topbar"><div class="brand"><span class="brand-icon">◈</span><div><strong>天际线Ⅱ地图规划设计器</strong><span>MAP DESIGN STUDIO</span></div><i></i><span class="project"><small>14.336 × 14.336 km</small></span></div><div class="top-actions"><details class="web-layer-menu"><summary>工具</summary><div><button id="openPlanningTools" aria-controls="planningPanel">规划工具</button><button id="openNamingTool">取名工具</button><button id="openThreeView">3D 视图</button><button id="openAssetExtractor" hidden>资产提取</button></div></details><details class="web-layer-menu web-view-menu"><summary>编辑</summary><div><button id="toggleInspector" aria-controls="rightPanel" aria-expanded="true">隐藏右栏</button><label class="check-row"><input id="gridToggle" type="checkbox">显示 500 m 参考网格</label><label class="check-row"><input id="snapToggle" type="checkbox">断点 / 节点吸附</label><label class="check-row"><input id="notesVisible" type="checkbox">显示名称与标签</label><label class="check-row"><input id="corridorsToggle" type="checkbox">显示路网预留走廊</label></div></details><details class="web-layer-menu"><summary>图层</summary><div><button data-open-layer-manager>图层管理</button><button data-open-basemap-manager>底图管理</button><button id="zoneOpacitySettings">区块透明度</button></div></details><span id="currentProjectLabel" class="current-project-label" aria-live="polite"></span><button id="openProjectFolderTop">打开项目文件夹</button><button id="openProjectTop">打开工程</button><button id="saveProjectTop">保存</button><button id="saveAsProjectTop">另存为</button><button id="projectBtn">工程</button><button id="cartoFolderBtn" title="导入 Carto 文件夹">导入</button><button id="exportCartoBtn" class="primary">导出</button><button id="helpBtn" title="操作说明">?</button></div></header>
+<header class="topbar"><div class="brand"><span class="brand-icon">◈</span><div><strong>天际线Ⅱ地图规划设计器</strong><span>MAP DESIGN STUDIO</span></div><i></i><span class="project"><small>14.336 × 14.336 km</small></span></div><div class="top-actions"><details class="web-layer-menu"><summary>工具</summary><div><button id="openPlanningTools" aria-controls="planningPanel">规划工具</button><button id="openNamingTool">取名工具</button><button id="openThreeView">3D 视图</button><button id="openAssetExtractor" hidden>资产提取</button></div></details><details class="web-layer-menu web-view-menu"><summary>编辑</summary><div><button id="toggleInspector" aria-controls="rightPanel" aria-expanded="true">隐藏右栏</button><label class="check-row"><input id="gridToggle" type="checkbox">显示 500 m 参考网格</label><label class="check-row"><input id="snapToggle" type="checkbox">断点 / 节点吸附</label><label class="check-row"><input id="notesVisible" type="checkbox">显示名称与标签</label><label class="check-row"><input id="corridorsToggle" type="checkbox">显示路网预留走廊</label></div></details><details class="web-layer-menu"><summary>图层</summary><div><button data-open-layer-manager>图层管理</button><button data-open-basemap-manager>底图管理</button><button id="zoneOpacitySettings">区块透明度</button></div></details><span id="currentProjectLabel" class="current-project-label" aria-live="polite"></span><button id="openProjectFolderTop">打开项目文件夹</button><button id="openProjectTop">打开工程</button><button id="saveProjectTop">保存</button><button id="saveAsProjectTop">另存为</button><button id="projectBtn">工程</button><button id="cartoFolderBtn" title="导入 Carto 文件夹">导入</button><button id="exportMenuBtn" class="primary">导出</button><button id="exportCartoBtn" hidden>导出 Carto</button><button id="helpBtn" title="操作说明">?</button></div></header>
 <main class="workspace"><aside class="left-panel panel"><div class="panel-heading editor-tools" role="toolbar" aria-label="绘图工具"><button id="selectTool" class="active" title="选择与编辑 (V)" aria-label="选择"><span class="tool-icon">↖</span><span class="tool-label">选择</span></button><button id="panTool" title="平移 (H)" aria-label="平移"><span class="tool-icon">✥</span><span class="tool-label">平移</span></button><button id="measureTool" title="测量 (M)" aria-label="测距"><span class="tool-icon">⌁</span><span class="tool-label">测距</span></button><button id="undoBtn" class="history-tool" title="撤销 Ctrl+Z" aria-label="撤销">↶</button><button id="redoBtn" class="history-tool" title="恢复 Ctrl+Shift+Z" aria-label="恢复">↷</button></div><div class="left-scroll"><section id="planWorkspacePanel" hidden>
  <div class="section-title">独立规划工作区</div>
  <p id="planWorkspaceInfo" class="muted"></p>
@@ -168,7 +168,7 @@
 </dialog>
 <dialog id="aboutDialog" class="reference-dialog" aria-labelledby="aboutTitle">
  <div class="dialog-header"><h2 id="aboutTitle">关于地图规划设计器</h2><button data-close="aboutDialog" aria-label="关闭关于">×</button></div>
- <div class="about-identity"><span class="brand-icon" aria-hidden="true">◈</span><div><strong>天际线Ⅱ地图规划设计器</strong><div>v0.7.1 · Windows x64 · Tauri 绿色版</div></div></div>
+ <div class="about-identity"><span class="brand-icon" aria-hidden="true">◈</span><div><strong>天际线Ⅱ地图规划设计器</strong><div>v0.7.2 · Windows x64 · Tauri 绿色版</div></div></div>
  <p>本项目采用许愿式编程。为《Cities: Skylines II》玩家提供二维地图规划、工程管理和游戏内建设参考。</p>
  <dl class="about-notices">
   <dt>独立社区项目</dt><dd>本工具由社区维护，与 Colossal Order、Paradox Interactive 无官方隶属或合作关系。</dd>
@@ -191,6 +191,7 @@
   <ol>
    <li>先在游戏里用 Carto 导出数据，再从「文件 → 导入 Carto 文件夹」选中导出目录。可读取 Shapefile、高程 <code>Elevation.tif</code> 和水深 <code>Depth.tif</code>。</li>
    <li>在「图层 → 导入底图」加入正方形图片，在左侧「地形」切换显示。工程名称和地图边长在「文件 → 工程设置」调整。</li>
+   <li>勾选「地形 → 等高线地形图」可在编辑时查看彩色高程、水域和海拔标注。海平面自动推算，也可在图层属性中校准。</li>
    <li>用 <kbd>Ctrl</kbd> + <kbd>S</kbd> 保存工程。首次保存选择位置，再次保存写回已打开的工程。另存一份可用 <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd>。</li>
   </ol>
  </details>
@@ -216,6 +217,7 @@
   <ul>
    <li>从游戏再次导出同一张地图后，用「文件 → 导入 Carto 文件夹」更新游戏现状，手绘规划会保留。「图层」也可单独导出或叠加导入手绘规划。</li>
    <li>从「文件」导出 Carto Shapefile 或 2048、4096、8192 像素的 PNG。PNG 会按可见图层输出整图。</li>
+   <li>「导出地图数据包（ZIP）」按图层整理 JSON 和可用的原始地形及统计 CSV，供程序或大模型分析。「导出地形 PNG」单独生成以海平面为 0 米的彩色等高线地形图。</li>
    <li>把 PNG 放进 Image Overlay 的 <code>Overlays</code> 目录，在游戏里刷新列表并选择图片，再对照叠图建设。</li>
   </ul>
  </details>
@@ -231,5 +233,22 @@
    <dt><kbd>F1</kbd> / <kbd>F11</kbd></dt><dd>操作说明 / 全屏</dd>
   </dl>
  </details>
+</dialog>
+<dialog id="terrainPngDialog">
+ <div class="dialog-header"><h2>导出地形 PNG</h2><button data-close="terrainPngDialog" aria-label="关闭地形导出">×</button></div>
+ <p class="muted">等高线以海平面为 0 米，颜色显示地形与水域。</p>
+ <div id="terrainSeaLevelField" hidden>
+  <label class="field-label" for="terrainSeaLevel">海平面对应的 Carto 原始高程（米）</label>
+  <input id="terrainSeaLevel" type="number" step="any" min="-1000000" max="1000000" required>
+ </div>
+ <p id="terrainDatumStatus" class="muted" role="status"></p>
+ <div class="dialog-actions"><button id="confirmTerrainPng" class="primary" disabled>导出 PNG</button></div>
+</dialog>
+<dialog id="exportMenuDialog">
+ <div class="dialog-header"><h2>导出地图</h2><button data-close="exportMenuDialog" aria-label="关闭导出菜单">×</button></div>
+ <div class="dialog-actions">
+  <button data-export="carto">导出 Carto</button><button data-export="map">导出整图 PNG</button>
+  <button data-export="data">导出地图数据包（ZIP）</button><button data-export="terrain">导出地形 PNG</button>
+ </div>
 </dialog>
 <script type="module" src="app.js"></script><dialog id="assetManagerDialog" class="asset-manager"><div class="asset-manager-heading"><h2>资产包管理</h2><button data-close="assetManagerDialog">关闭</button></div><p class="muted">管理当前工程的资产包。移除可撤销，保存工程后生效；不会删除导入源文件或提取器输出。</p><div class="asset-manager-actions"><button id="selectUnusedPacks">选中未摆放的包</button><button id="clearPackSelection">取消全选</button><input id="assetManagerSearch" type="text" placeholder="搜索资产包名称" aria-label="搜索资产包名称"></div><div id="assetManagerList"></div><label class="check-row"><input id="removePlacedWithPack" type="checkbox">同时移除所选包已经摆放的建筑</label><div class="dialog-actions"><button id="removeSelectedPacks" class="danger-button">移除所选资产包</button><span id="assetManagerStatus" aria-live="polite"></span></div></dialog><dialog id="layerManagerDialog" class="layer-manager-dialog"><div class="dialog-header"><h2>图层管理</h2><button data-close="layerManagerDialog" aria-label="关闭图层管理">×</button></div><p class="muted">管理当前工程的显示、锁定和名称标签。点击分类名称可返回右侧属性与对象列表。</p><div id="layerManagerList"></div></dialog><dialog id="basemapManagerDialog" class="basemap-manager-dialog"><div class="dialog-header"><h2>底图管理</h2><button data-close="basemapManagerDialog" aria-label="关闭底图管理">×</button></div><p class="muted">正方形图片按同一地图范围对齐；可以选择、重命名或从工程中移除底图。移除可撤销，原图片文件保留。</p><button id="managerImportBasemap" class="wide-button">＋ 导入底图</button><div id="basemapManagerList"></div></dialog></body></html>

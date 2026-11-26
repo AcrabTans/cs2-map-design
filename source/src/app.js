@@ -5,6 +5,8 @@ import {NAME_STYLES,NAME_TYPES,nameCandidates,drawNames} from './name-generator.
 import {installDesktopPickers,desktopFile,lightHistorySnapshot,restoreHistorySnapshot,featureHistorySnapshot,restoreFeatureHistory} from './desktop-runtime.js';
 installDesktopPickers({
  exportPngBtn:openPngExport,
+ exportMapDataBtn:exportMapData,
+ exportTerrainPngBtn:openTerrainPngExport,
  manageLayers:openLayerManager,
  manageBasemaps:openBasemapManager,
  importPlanning:importPlanningLayer,
@@ -16,12 +18,14 @@ installDesktopPickers({
 import {readProjectFolder,directoryProjectEntries,folderFileHandle,saveFolderLibraries} from './project-folder.js';
 import {removeProjectAssetPacks,buildingPacksFor,addPresetBuildingPacks,includePlacedAsset,catalogPage,readAssetSelection,paradoxModId,buildingAngle,transformBuildingRing,buildingAssetLot,buildingAssetFits,makeBuildingAssetFeature,rotateBuildingAsset,moveBuildingAsset} from './building-assets.js';
 import {packCartoRecords,cartoExportRecords,CARTO_EXPORT_LAYERS} from './carto-export.js';
+import {packMapData,readExportTerrain} from './map-data-export.js';
 import {packProject,packTauriProject,unpackProject,ProjectFileWriter,chooseProjectSaveTarget,fromBase64} from './project-file.js';
 import {createEditScheduler,createSnapIndex,createRoadSegmentIndex,createCrossingCache} from './edit-performance.js';
 import {networkDisplay,mapScrollAxis,createViewportScheduler,createZoomAnimator,wheelZoomFactor} from './network-display.js';
 import {roadStackLevel,isStreetRoad,buildNetworkCrossings,junctionSectors,roadFlatEnds,crossingRelation} from './network-crossings.js';
 import {SIZE,ROADS,ZONES,MUNICIPAL_TYPES,municipalClass,municipalVisible,defaultLayerColor,featureDisplayColor,roadStyleColors,zoneInfo,roadInfo,distance,length,area,nearestGeometryEdge,geometryParts,insertGeometryNodes,initialProject,validateProject,isPolygonFeature,interiorPoint,GROUPS,BLOCK_CLASSES,BUILDINGS,blockClass,classInfo,featureSource,layerKey,visibleInEditor,labelsVisibleInEditor,originForFeature,lockedInEditor,prepareEditor,correctionCopy,validateInterchangeBounds,containedGeometry,buildingCategory,groupForLayer,layerKeysForGroup,CARTO_FIELDS,fieldsForLayer} from './model.js';
-import {terrainType,readTerrainTiff,terrainPixels,checkTerrainExtent,correctTerrainSource,terrainFingerprint} from './terrain.js';
+import {terrainType,readTerrainTiff,terrainPixels,checkTerrainExtent,correctTerrainSource,terrainFingerprint,estimateSeaLevel} from './terrain.js';
+import {terrainContours,drawTerrainContours} from './terrain-contours.js';
 import {inspectCartoFolder,mergeCartoImport} from './carto.js';
 import {projectMapFrame,checkPlanningFrame,copyAsPlanning,createPlanningProject,mergePlanningProject,pickDistrict,districtPlanningStats,planningWorkspaceStages,planningStageOf,planningWorkspaceAdditions,mergePlanningWorkspace} from './planning.js';
 import {generateMasterPlan,masterPlanProfiles,generateScenicPlan,scenicThemes} from './master-plan.js';
@@ -48,6 +52,7 @@ let planningWorkspace=null,basePlanningState=null;
 const desktopDraftKey=KEY+'-desktop-draft';
 let desktopDraftTimer=null,desktopDraftWrites=Promise.resolve(),desktopDraftFailed=false;
 let openedBaseImages={},terrainFiles=new Map(),assetCacheKey=crypto.randomUUID(),projectWriter=new ProjectFileWriter(),pendingProject=null,exportCartoBusy=false;
+let topographicCache=null,topographicSerial=0;
 function terrainCorrectionFor(p){return correctTerrainSource(p,typeof SEED_PROJECT==='undefined'?null:SEED_PROJECT,typeof TERRAIN_CORRECTION==='undefined'?null:TERRAIN_CORRECTION);}
 try{if(window.mapDesktop)throw Error('桌面版使用手动工程保存');const raw=localStorage.getItem(KEY);if(raw){project=validateProject(JSON.parse(raw));browserHasProject=true;projectDirty=true;}}catch{}
 try{if(window.mapDesktop)throw Error('桌面版使用手动工程保存');const backup=await projectBackup('get',KEY),candidate=backup?.snapshotFormat===2?backup.project:backup;if(candidate&&(candidate.editorSavedAt||0)>=(project.editorSavedAt||0)){project=validateProject(candidate);browserHasProject=true;projectDirty=backup.snapshotFormat===2?backup.dirty!==false:true;if(backup.fileName)currentFileName=backup.fileName;if(backup.assetCacheKey){assetCacheKey=backup.assetCacheKey;const assets=await projectBackup('get',KEY+'-assets');if(assets?.key===assetCacheKey){openedBaseImages=assets.baseImages||{};terrainFiles=new Map(assets.terrainFiles||[]);}}}}catch{}
@@ -170,7 +175,7 @@ function installProject(doc){
  // Project loaders have already validated and migrated the document.
  project=repaired.changedIds.length?prepareEditor(repaired.project):repaired.project;
  projectFolderContext=doc.folderContext||null;
- terrainFiles=new Map();for(const r of doc.project.rasters){const raw=doc.terrainFiles?.get(r.id);if(raw&&!repaired.changedIds.includes(r.id))terrainFiles.set(r.id+':'+terrainFingerprint(r.data),raw);}
+ terrainFiles=new Map();topographicCache=null;for(const r of doc.project.rasters){const raw=doc.terrainFiles?.get(r.id);if(raw&&!repaired.changedIds.includes(r.id))terrainFiles.set(r.id+':'+terrainFingerprint(r.data),raw);}
  openedBaseImages=doc.baseImages||{};projectWriter=doc.writer||new ProjectFileWriter();currentFileName=doc.fileName||safeProjectName();projectDirty=!!(doc.isNew||doc.isRecovered);assetCacheKey=crypto.randomUUID();editRevision++;history=[];future=[];selected=null;selectedNode=null;scopeId='';draft=[];listQuery='';
  const w=doc.workspace||{};activeLayer={key:typeof w.activeLayer==='string'&&(project.settings.editor.layers[w.activeLayer]||GROUPS.some(([g])=>g===w.activeLayer))?w.activeLayer:'area',source:'manual'};expandedGroups.clear();for(const key of w.expandedGroups||[])if(GROUPS.some(([g])=>g===key)){expandedGroups.clear();expandedGroups.add(key);break;}
  if(w.view&&Number.isFinite(w.view.cx)&&Number.isFinite(w.view.cy)&&Number.isFinite(w.view.zoom)&&w.view.zoom>=.5&&w.view.zoom<=35)view={cx:w.view.cx,cy:w.view.cy,scale:fitScale*w.view.zoom};else fitView();
@@ -636,7 +641,7 @@ function polygonFill(f,color){if(!f.fillStyle||f.fillStyle==='solid')return colo
 function layerName(key){
  const groups=Object.fromEntries(GROUPS);if(groups[key])return groups[key];
  if(key.startsWith('building:'))return BUILDINGS.find(([id])=>id===key.split(':')[1])?.[1]||'其他建筑';
- return ({'district:large':'大片区','district:small':'小片区','district:tile':'游戏地块','zone':'功能区块','zoning:boundary':'游戏用地区划','road:interchange':'立交预留范围','terrain:landwater':'陆地／水体简图','terrain:elevation':'Elevation 地形','terrain:depth':'Depth 水体','route:bus':'公交','route:metro':'地铁线路','route:train':'客运铁路线路','route:water':'水上交通','route:air':'航空线路','route:other':'其他交通线路'})[key]||roadInfo(key.split(':')[1]).name;
+ return ({'district:large':'大片区','district:small':'小片区','district:tile':'游戏地块','zone':'功能区块','zoning:boundary':'游戏用地区划','road:interchange':'立交预留范围','terrain:landwater':'陆地／水体简图','terrain:elevation':'Elevation 地形','terrain:depth':'Depth 水体','terrain:topographic':'等高线地形图','route:bus':'公交','route:metro':'地铁线路','route:train':'客运铁路线路','route:water':'水上交通','route:air':'航空线路','route:other':'其他交通线路'})[key]||roadInfo(key.split(':')[1]).name;
 }
 function expandLayerGroup(key,open=true){
  expandedGroups.clear();if(open)expandedGroups.add(key);
@@ -653,7 +658,7 @@ function buildLayers(){
   if(g==='network'){section.querySelector('.group-heading').oncontextmenu=ev=>{ev.preventDefault();openNetworkSettings()};}
   for(const key of layerKeysForGroup(g)){
    const row=document.createElement('div');row.className='editor-layer';row.dataset.layerKey=key;
-   const color=key.startsWith('road:')&&key!=='road:interchange'?project.settings.editor.roadStyles[key.split(':')[1]].color:project.settings.editor.layers[key].color||(key==='terrain:landwater'?'#66b8e5':key==='terrain:depth'?'#3185b0':key==='terrain:elevation'?'#8fa475':defaultLayerColor(key));
+   const color=key.startsWith('road:')&&key!=='road:interchange'?project.settings.editor.roadStyles[key.split(':')[1]].color:project.settings.editor.layers[key].color||({'terrain:landwater':'#66b8e5','terrain:depth':'#3185b0','terrain:elevation':'#8fa475','terrain:topographic':'#9b916e'}[key]||defaultLayerColor(key));
    row.innerHTML=`<input type="checkbox" data-layer-visible="${key}" aria-label="显示${layerName(key)}"><button class="category-button" data-category="${key}"><span class="layer-chip ${key.startsWith('road:')?'road-chip':''}" style="background:${key==='road:rail'?'repeating-linear-gradient(90deg,'+color+' 0 5px,#fff 5px 10px)':color}"></span>${layerName(key)}</button>`;
    row.querySelector('input').onchange=ev=>{checkpoint();project.settings.editor.layers[key].visible=ev.target.checked;changed()};row.querySelector('button').onclick=()=>activateLayer(key);
    section.querySelector('.group-content').appendChild(row);
@@ -788,6 +793,7 @@ function openProject(){$('projectTitle').value=project.title;$('projectSummary')
 $('projectBtn').onclick=openProject;$('projectTitle').onchange=e=>{checkpoint();project.title=e.target.value.trim()||'地图工程';persist();};$('saveProjectBtn').onclick=()=>saveProject();$('saveAsProjectBtn').onclick=()=>saveProject(true);$('saveProjectTop').onclick=()=>saveProject();$('saveAsProjectTop').onclick=()=>saveProject(true);$('openProjectTop').onclick=openProjectFile;document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
 $('discardProjectChanges').onclick=()=>{if(pendingProject)installProject(pendingProject);};$('saveThenOpenProject').onclick=async()=>{const next=pendingProject;if(next&&await saveProject())installProject(next);};$('cancelProjectSwitch').onclick=()=>{pendingProject=null;$('unsavedDialog').close();};
 function openPngExport(){$('pngResolution').value=project.settings.editor.pngSize;$('pngLabelSize').value=project.settings.editor.labelSize;$('pngStatus').textContent='';$('pngDialog').showModal();}
+const canvasPng=canvas=>new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(Error('PNG 编码失败')),'image/png'));
 function exportStage(id,message){
  $(id).textContent=message;
  // Let the dialog paint before synchronous geometry or raster work starts.
@@ -820,6 +826,11 @@ function renderPngSvg(size,labelSize){
 }
 async function exportPng(size,labelSize){
  await exportStage('pngStatus','正在生成地图图层…');
+ if(topographicVisible()){
+  const preview=requestTopographicPreview();
+  await preview?.promise;
+  if(preview?.status==='error')throw Error(preview.error);
+ }
  const copy=renderPngSvg(size,labelSize),title=project.title;
  const image=copy.querySelector('#baseImage');
  if(image.style.display==='none')image.remove();
@@ -840,7 +851,7 @@ async function exportPng(size,labelSize){
   canvas.width=size;canvas.height=size;
   canvas.getContext('2d').drawImage(img,0,0,size,size);
   await exportStage('pngStatus','正在编码 PNG…');
-  const png=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('PNG 编码失败')),'image/png'));
+  const png=await canvasPng(canvas);
   canvas.width=canvas.height=1;
   await exportStage('pngStatus',window.mapDesktop?'请选择 PNG 的保存位置…':'正在下载 PNG…');
   await download(png,`${title}-${size}.png`,'image/png',()=>exportStage('pngStatus','正在写入 PNG…'));
@@ -872,6 +883,52 @@ bindMapScrollbars();buildLayers();syncUI();updateUndo();new ResizeObserver(()=>{
 
 $('newProjectBtn').onclick=newProject;
 function layerObjects(key){return project.features.filter(f=>GROUPS.some(([id])=>id===key)?groupForLayer(layerKey(f))===key:layerKey(f)===key)}
+function topographicVisible(){
+ const e=project.settings.editor;
+ return e.groups.terrain!==false&&e.layers['terrain:topographic'].visible;
+}
+function topographicInputs(){
+ return {elevation:project.rasters.find(r=>r.id==='elevation')?.data,
+  depth:project.rasters.find(r=>r.id==='depth')?.data,seaLevel:project.settings.editor.topographicTerrain.seaLevel,files:terrainFiles};
+}
+function sameTopographicInputs(a,b){
+ return a&&a.elevation===b.elevation&&a.depth===b.depth&&a.seaLevel===b.seaLevel&&a.files===b.files;
+}
+function currentTopographicPreview(){
+ return sameTopographicInputs(topographicCache,topographicInputs())?topographicCache:null;
+}
+function requestTopographicPreview(){
+ const inputs=topographicInputs();
+ if(!inputs.elevation&&!inputs.depth){topographicCache=null;return null;}
+ if(sameTopographicInputs(topographicCache,inputs))return topographicCache;
+ const rasters=project.rasters.slice(),record={...inputs,id:++topographicSerial,status:'loading'};
+ const current=()=>topographicCache===record&&sameTopographicInputs(record,topographicInputs());
+ topographicCache=record;
+ record.promise=(async()=>{
+  try{
+   await new Promise(resolve=>setTimeout(resolve,25));
+   if(!current())return;
+   await ensureTerrainFiles();
+   if(!current())return;
+   const numeric=Object.fromEntries([...activeTerrainFiles()].map(([id,bytes])=>[id,readExportTerrain(bytes)]));
+   record.hasElevation=!!numeric.elevation;
+   record.estimated=estimateSeaLevel(numeric.elevation,numeric.depth);
+   record.datum=record.seaLevel??record.estimated;
+   const png=await terrainPng(rasters,numeric,record.datum);
+   const data=await readData(png);
+   if(!current())return;
+   record.data=data;record.status='ready';
+   renderTerrain();
+  }catch(error){
+   if(!current())return;
+   record.status='error';record.error=error.message;
+   if(topographicVisible())toast('等高线地形图生成失败：'+record.error);
+  }finally{
+   if(current()&&activeLayer.key==='terrain:topographic')renderProperties();
+  }
+ })();
+ return record;
+}
 function renderTerrain(){
  const host=mapElement('terrainShapes'),e=project.settings.editor;
  host.style.display=e.groups.terrain===false?'none':'';if(e.groups.terrain===false){host.replaceChildren();return;}
@@ -883,17 +940,31 @@ function renderTerrain(){
   if(el.getAttribute('href')!==r.data)el.setAttribute('href',r.data);
   el.setAttribute('opacity',r.opacity/100);el.style.display=e.layers['terrain:'+id].visible===false?'none':'';
  }
- // Water is always drawn above elevation, regardless of import order.
- const water=host.querySelector('[data-raster="depth"]'),existingSimple=host.querySelector('[data-raster="landwater"]');if(water&&(existingSimple?water.nextElementSibling!==existingSimple:water!==host.lastElementChild))host.insertBefore(water,existingSimple);
  // Derive a flat land/water view from Depth's valid-pixel mask. No extra import.
  const depth=project.rasters.find(r=>r.id==='depth');let simple=host.querySelector('[data-raster="landwater"]');
- if(!depth||e.layers['terrain:landwater'].visible===false){simple?.remove();return;}
- if(!simple){simple=node('g',{'data-raster':'landwater'},host);node('rect',{x:0,y:0,width:SIZE,height:SIZE,'data-simple-land':''},simple);node('image',{x:0,y:0,width:SIZE,height:SIZE,preserveAspectRatio:'none',filter:'url(#simpleWaterMask)','data-simple-water':''},simple);}
- const style=e.simpleTerrain,mask=simple.querySelector('image');
- simple.querySelector('rect').setAttribute('fill',style.landColor);mapElement('simpleWaterColor').setAttribute('flood-color',style.waterColor);
- if(mask.getAttribute('href')!==depth.data)mask.setAttribute('href',depth.data);
- simple.setAttribute('opacity',style.opacity/100);simple.style.display=e.layers['terrain:landwater'].visible===false?'none':'';
- if(simple!==host.lastElementChild)host.appendChild(simple);
+ if(!depth||e.layers['terrain:landwater'].visible===false){simple?.remove();}
+ else{
+  if(!simple){simple=node('g',{'data-raster':'landwater'},host);node('rect',{x:0,y:0,width:SIZE,height:SIZE,'data-simple-land':''},simple);node('image',{x:0,y:0,width:SIZE,height:SIZE,preserveAspectRatio:'none',filter:'url(#simpleWaterMask)','data-simple-water':''},simple);}
+  const style=e.simpleTerrain,mask=simple.querySelector('image');
+  simple.querySelector('rect').setAttribute('fill',style.landColor);mapElement('simpleWaterColor').setAttribute('flood-color',style.waterColor);
+  if(mask.getAttribute('href')!==depth.data)mask.setAttribute('href',depth.data);
+  simple.setAttribute('opacity',style.opacity/100);
+ }
+ const preview=topographicVisible()?requestTopographicPreview():null;
+ let topo=host.querySelector('[data-raster="topographic"]');
+ if(preview?.status==='ready'){
+  if(!topo)topo=node('image',{'data-raster':'topographic',x:0,y:0,width:SIZE,height:SIZE,preserveAspectRatio:'none'},host);
+  if(topo.dataset.previewId!==String(preview.id)){topo.setAttribute('href',preview.data);topo.dataset.previewId=String(preview.id);}
+  topo.setAttribute('opacity',e.topographicTerrain.opacity/100);
+ }else topo?.remove();
+ // Keep the composite above raw terrain, below all vector layers.
+ let previous=null;
+ for(const id of ['elevation','depth','landwater','topographic']){
+  const el=host.querySelector(`[data-raster="${id}"]`);
+  if(!el)continue;
+  if(el.previousElementSibling!==previous)host.insertBefore(el,previous?previous.nextElementSibling:host.firstElementChild);
+  previous=el;
+ }
 }
 let terrainImporting=false,terrainTarget=null;
 function chooseTerrainFile(folder=false){
@@ -901,6 +972,7 @@ function chooseTerrainFile(folder=false){
  if(terrainImporting)return;
  terrainTarget=activeLayer.key.startsWith('terrain:')?activeLayer.key.split(':')[1]:null;
  if(terrainTarget==='landwater')terrainTarget='depth';
+ if(terrainTarget==='topographic')terrainTarget='elevation';
  $(folder?'terrainFolder':'terrainFile').click();
 }
 async function importTerrainFiles(files,folder=false){
@@ -927,7 +999,7 @@ async function importTerrainFiles(files,folder=false){
   }
   const next=structuredClone(project);next.rasters=[...next.rasters.filter(r=>!ids.has(r.id)),...replacements];next.settings.editor.groups.terrain=true;
   for(const id of ids)next.settings.editor.layers['terrain:'+id].visible=true;
-  const valid=prepareEditor(next);checkpoint();project=valid;for(const [id,raw]of rawReplacements)terrainFiles.set(id+':'+terrainFingerprint(replacements.find(r=>r.id===id).data),raw);cacheProjectAssets();changed();toast(`已导入 ${replacements.map(r=>r.name).join('、')}，随工程保存`);
+  const valid=prepareEditor(next);checkpoint();project=valid;for(const [id,raw]of rawReplacements)terrainFiles.set(id+':'+terrainFingerprint(replacements.find(r=>r.id===id).data),raw);topographicCache=null;cacheProjectAssets();changed();toast(`已导入 ${replacements.map(r=>r.name).join('、')}，随工程保存`);
  }catch(error){toast('导入失败：'+error.message);}
  finally{terrainImporting=false;renderProperties();}
 }
@@ -935,23 +1007,24 @@ $('terrainFile').onchange=async e=>{await importTerrainFiles(e.target.files);e.t
 $('terrainFolder').onchange=async e=>{await importTerrainFiles(e.target.files,true);e.target.value='';};
 function renderTerrainProperties(host){
  if(activeLayer.key==='terrain:landwater'){renderSimpleTerrainProperties(host);return;}
+ if(activeLayer.key==='terrain:topographic'){renderTopographicProperties(host);return;}
  const key=activeLayer.key,isGroup=key==='terrain',e=project.settings.editor,children=layerKeysForGroup('terrain'),id=key.split(':')[1],r=project.rasters.find(x=>x.id===id),layer=e.layers[key];
  const locked=isGroup?children.every(k=>e.layers[k].locked):layer.locked,visible=e.groups.terrain!==false&&(isGroup||layer.visible);
  const disabled=terrainImporting||locked?'disabled':'';
  const m=r?.metadata,number=n=>Number(n.toFixed(3)).toLocaleString('zh-CN');
  host.innerHTML=`${!isGroup?'<button id="backGroup" class="back-button">← 返回地形</button>':''}<div class="object-kind">图层属性 · GeoTIFF</div><h2 class="property-title">${escape(layerName(key))}</h2>
  <div class="layer-toggles"><label class="check-row"><input id="terrainVisible" type="checkbox" ${visible?'checked':''}>显示图层</label><label class="check-row"><input id="terrainLocked" type="checkbox" ${locked?'checked':''}>${isGroup?'锁定全部子层':'锁定图层'}</label></div>
- ${isGroup?`<div class="layer-subcategories">${children.map(k=>`<button data-terrain-layer="${k}">${escape(layerName(k))} <small>${project.rasters.some(x=>x.id===(k==='terrain:landwater'?'depth':k.split(':')[1]))?(k==='terrain:landwater'?'可用':'已导入'):'未导入'}</small></button>`).join('')}</div>`:''}
+ ${isGroup?`<div class="layer-subcategories">${children.map(k=>{const derived=k==='terrain:landwater'||k==='terrain:topographic',available=k==='terrain:topographic'?project.rasters.length>0:project.rasters.some(x=>x.id===(k==='terrain:landwater'?'depth':k.split(':')[1]));return `<button data-terrain-layer="${k}">${escape(layerName(k))} <small>${available?(derived?'可用':'已导入'):'未导入'}</small></button>`;}).join('')}</div>`:''}
  <button id="importTerrain" class="wide-button primary" ${disabled}>${terrainImporting?'正在读取…':r?'替换 GeoTIFF':'＋ 导入 GeoTIFF'}</button>${isGroup?`<button id="importTerrainFolder" class="wide-button" ${disabled}>导入 Carto 文件夹</button>`:''}
  <p class="muted">${isGroup?'自动识别 Elevation.tif 地形和 Depth.tif 水体。文件夹导入同时识别 Shapefile 图层。':id==='depth'?'按水深着色，无数据区域透明显示。':'按高程着色，以自然绿和暖土色表现地势，增强色彩对比。'}地形与水体显示在底图上方、规划图层下方。</p>
- ${r?`<label class="range-row">透明度<input id="terrainOpacity" type="range" min="0" max="100" value="${r.opacity}" ${locked?'disabled':''}><output id="terrainOpacityValue">${r.opacity}%</output></label><dl class="raster-metadata"><dt>源文件</dt><dd>${escape(r.fileName)}</dd>${r.source?.dataset?'<dt>数据来源</dt><dd>'+escape(r.source.dataset)+'</dd>':''}<dt>原始分辨率</dt><dd>${m.width} × ${m.height}</dd><dt>数值范围</dt><dd>${number(m.min)} ～ ${number(m.max)}</dd><dt>有效像元</dt><dd>${(m.validCount/(m.width*m.height)*100).toFixed(2)}%</dd><dt>无数据值</dt><dd>${m.noData===null?'未标记':m.noData}</dd><dt>像元尺寸</dt><dd>${m.pixelSize?m.pixelSize.map(number).join(' × ')+' m':'未提供'}</dd><dt>坐标系</dt><dd>${escape(m.crs||'未提供')}</dd><dt>覆盖范围</dt><dd>${m.bounds?number((m.bounds[2]-m.bounds[0])/1000)+' × '+number((m.bounds[3]-m.bounds[1])/1000)+' km':'按完整地图对齐'}</dd></dl><div class="terrain-legend ${id}"></div><p class="muted">低值 → 高值</p><button id="removeTerrain" class="danger-button" ${locked?'disabled':''}>移除此地形图层数据</button>`:isGroup?`<p class="muted">3 个显示图层 · 已导入 ${project.rasters.length} / 2 张原始数据。陆地／水体简图由 Depth 自动生成；各层可单独显示，随工程保存。</p>`:'<p class="muted">尚未导入。支持 Carto 单波段、未压缩的正方形 GeoTIFF。</p>'}`;
+ ${r?`<label class="range-row">透明度<input id="terrainOpacity" type="range" min="0" max="100" value="${r.opacity}" ${locked?'disabled':''}><output id="terrainOpacityValue">${r.opacity}%</output></label><dl class="raster-metadata"><dt>源文件</dt><dd>${escape(r.fileName)}</dd>${r.source?.dataset?'<dt>数据来源</dt><dd>'+escape(r.source.dataset)+'</dd>':''}<dt>原始分辨率</dt><dd>${m.width} × ${m.height}</dd><dt>数值范围</dt><dd>${number(m.min)} ～ ${number(m.max)}</dd><dt>有效像元</dt><dd>${(m.validCount/(m.width*m.height)*100).toFixed(2)}%</dd><dt>无数据值</dt><dd>${m.noData===null?'未标记':m.noData}</dd><dt>像元尺寸</dt><dd>${m.pixelSize?m.pixelSize.map(number).join(' × ')+' m':'未提供'}</dd><dt>坐标系</dt><dd>${escape(m.crs||'未提供')}</dd><dt>覆盖范围</dt><dd>${m.bounds?number((m.bounds[2]-m.bounds[0])/1000)+' × '+number((m.bounds[3]-m.bounds[1])/1000)+' km':'按完整地图对齐'}</dd></dl><div class="terrain-legend ${id}"></div><p class="muted">低值 → 高值</p><button id="removeTerrain" class="danger-button" ${locked?'disabled':''}>移除此地形图层数据</button>`:isGroup?`<p class="muted">4 个显示图层 · 已导入 ${project.rasters.length} / 2 张原始数据。陆水简图和等高线地形图由已有数据自动生成，各层可单独显示。</p>`:'<p class="muted">尚未导入。支持 Carto 单波段、未压缩的正方形 GeoTIFF。</p>'}`;
  if($('backGroup'))$('backGroup').onclick=()=>activateLayer('terrain');
  $('terrainVisible').onchange=ev=>{checkpoint();if(isGroup)e.groups.terrain=ev.target.checked;else{layer.visible=ev.target.checked;if(layer.visible)e.groups.terrain=true;}changed();};
  $('terrainLocked').onchange=ev=>{checkpoint();if(isGroup)children.forEach(k=>e.layers[k].locked=ev.target.checked);else layer.locked=ev.target.checked;changed();};
  $('importTerrain').onclick=()=>chooseTerrainFile();if($('importTerrainFolder'))$('importTerrainFolder').onclick=()=>chooseTerrainFile(true);
  for(const b of host.querySelectorAll('[data-terrain-layer]'))b.onclick=()=>activateLayer(b.dataset.terrainLayer);
  if($('terrainOpacity')){const input=$('terrainOpacity');input.onpointerdown=()=>checkpoint();input.onkeydown=ev=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End','PageUp','PageDown'].includes(ev.key))checkpoint();};input.oninput=ev=>{r.opacity=Number(ev.target.value);$('terrainOpacityValue').textContent=r.opacity+'%';renderTerrain();persist();};}
- if($('removeTerrain'))$('removeTerrain').onclick=()=>{checkpoint();project.rasters=project.rasters.filter(x=>x.id!==id);changed();toast('图层数据已移除，可撤销恢复');};
+ if($('removeTerrain'))$('removeTerrain').onclick=()=>{checkpoint();project.rasters=project.rasters.filter(x=>x.id!==id);topographicCache=null;changed();toast('图层数据已移除，可撤销恢复');};
 }
 function renderSimpleTerrainProperties(host){
  const e=project.settings.editor,layer=e.layers['terrain:landwater'],style=e.simpleTerrain,depth=project.rasters.find(r=>r.id==='depth'),disabled=layer.locked?'disabled':'';
@@ -965,6 +1038,34 @@ function renderSimpleTerrainProperties(host){
  for(const [id,key] of [['simpleLandColor','landColor'],['simpleWaterEdit','waterColor']])if($(id))$(id).onchange=ev=>{checkpoint();style[key]=ev.target.value;changed();};
  if($('simpleOpacity')){const input=$('simpleOpacity');input.onpointerdown=()=>checkpoint();input.onkeydown=ev=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End','PageUp','PageDown'].includes(ev.key))checkpoint();};input.oninput=ev=>{style.opacity=Number(ev.target.value);$('simpleOpacityValue').textContent=style.opacity+'%';renderTerrain();persist();};}
  if($('simpleImportDepth'))$('simpleImportDepth').onclick=()=>chooseTerrainFile();
+}
+function renderTopographicProperties(host){
+ const e=project.settings.editor,layer=e.layers['terrain:topographic'],style=e.topographicTerrain;
+ const preview=currentTopographicPreview(),available=project.rasters.length>0,disabled=layer.locked?'disabled':'';
+ let message='打开图层后自动生成';
+ if(!available)message='请先导入 Carto 地形或水体数据。';
+ else if(preview?.status==='loading')message='正在生成等高线地形图…';
+ else if(preview?.status==='error')message='生成失败：'+preview.error;
+ else if(preview?.status==='ready'){
+  if(!preview.hasElevation)message='缺少原始高程，本图仅显示彩色地形与水域。';
+  else if(preview.datum===null)message='无法自动推算海平面，可手动填写基准高程以显示等高线。';
+  else message='当前海平面基准：'+preview.datum+' 米，地图标注以海平面为 0 米。';
+ }
+ host.innerHTML=`<button id="backGroup" class="back-button">← 返回地形</button><div class="object-kind">图层属性 · 等高线</div><h2 class="property-title">等高线地形图</h2>
+ <div class="layer-toggles"><label class="check-row"><input id="topographicVisible" type="checkbox" ${topographicVisible()?'checked':''}>显示图层</label><label class="check-row"><input id="topographicLock" type="checkbox" ${layer.locked?'checked':''}>锁定图层</label></div>
+ <p class="muted">融合原始高程和水深，显示与导出地形 PNG 一致的等高线、默认配色及海拔标注。</p>
+ <p class="muted" role="status">${escape(message)}</p>
+ <label class="field-label" for="topographicSeaLevel">海平面基准（米，留空自动）</label><input id="topographicSeaLevel" type="number" step="any" min="-1000000" max="1000000" value="${style.seaLevel??''}" placeholder="${preview?.estimated==null?'自动推算':preview.estimated+' 米（自动）'}" ${disabled}>
+ <label class="range-row">透明度<input id="topographicOpacity" type="range" min="0" max="100" value="${style.opacity}" ${disabled}><output id="topographicOpacityValue">${style.opacity}%</output></label>
+ ${preview?.status==='error'?'<button id="retryTopographic" class="wide-button">重新生成</button>':''}`;
+ $('backGroup').onclick=()=>activateLayer('terrain');
+ $('topographicVisible').onchange=ev=>{checkpoint();layer.visible=ev.target.checked;if(layer.visible)e.groups.terrain=true;changed();};
+ $('topographicLock').onchange=ev=>{checkpoint();layer.locked=ev.target.checked;changed();};
+ $('topographicSeaLevel').onchange=ev=>{const input=ev.target;if(!input.validity.valid){input.value=style.seaLevel??'';return;}const value=input.value===''?null:input.valueAsNumber;if(value!==style.seaLevel){checkpoint();style.seaLevel=value;changed();}};
+ const opacity=$('topographicOpacity');opacity.onpointerdown=()=>checkpoint();
+ opacity.onkeydown=ev=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End','PageUp','PageDown'].includes(ev.key))checkpoint();};
+ opacity.oninput=ev=>{style.opacity=Number(ev.target.value);$('topographicOpacityValue').textContent=style.opacity+'%';renderTerrain();persist();};
+ if($('retryTopographic'))$('retryTopographic').onclick=()=>{topographicCache=null;renderTerrain();renderProperties();};
 }
 let cartoBusy=false,pendingCarto=null,cartoOrigin=null,cartoRequest=0;
 function chooseCartoFolder(){if(!cartoBusy)$('cartoFolder').click();}
@@ -986,7 +1087,7 @@ $('cartoApply').onclick=()=>{
  if(project!==cartoOrigin){$('cartoStatus').textContent='当前工程已变化，请重新选择 Carto 文件夹。';return;}
  try{
   const stored=pendingCarto.rasters.map(({preview,rawBytes,...r})=>{const canvas=document.createElement('canvas');canvas.width=preview.width;canvas.height=preview.height;canvas.getContext('2d').putImageData(new ImageData(preview.pixels,preview.width,preview.height),0,0);const data=canvas.toDataURL('image/png');canvas.width=canvas.height=1;return {...r,data};});
-  const result=mergeCartoImport(project,pendingCarto,stored);for(const r of pendingCarto.rasters)if(r.rawBytes)terrainFiles.set(r.id+':'+terrainFingerprint(stored.find(s=>s.id===r.id).data),r.rawBytes);cacheProjectAssets();checkpoint();project=result.project;selected=null;selectedNode=null;scopeId='';activeLayer={key:'network',source:'manual'};setTool('select');buildLayers();changed();const count=pendingCarto.features.length;$('cartoDialog').close();toast(`Carto 已导入：${count} 个对象，更新 ${result.replaced} 个旧导入对象`);
+  const result=mergeCartoImport(project,pendingCarto,stored);for(const r of pendingCarto.rasters)if(r.rawBytes)terrainFiles.set(r.id+':'+terrainFingerprint(stored.find(s=>s.id===r.id).data),r.rawBytes);if(stored.length)topographicCache=null;cacheProjectAssets();checkpoint();project=result.project;selected=null;selectedNode=null;scopeId='';activeLayer={key:'network',source:'manual'};setTool('select');buildLayers();changed();const count=pendingCarto.features.length;$('cartoDialog').close();toast(`Carto 已导入：${count} 个对象，更新 ${result.replaced} 个旧导入对象`);
  }catch(error){$('cartoStatus').textContent='未写入工程：'+error.message;}
 };
 function layerSchemaHtml(key){const fields=fieldsForLayer(key);return fields.length?`<details class="attribute-schema"><summary>图层属性字段 · ${fields.length}</summary><div class="schema-list">${fields.map(([id,name])=>`<div><span>${name}</span><code>${id}</code></div>`).join('')}</div></details>`:''}
@@ -1123,6 +1224,120 @@ $('confirmCartoExport').onclick=async()=>{
  }finally{exportCartoBusy=false;$('confirmCartoExport').disabled=false;}
 };
 $('cartoExportPng').onclick=()=>{$('cartoExportDialog').close();openPngExport();};
+
+async function terrainPng(rasters,numeric,seaLevel){
+ const layers=['elevation','depth'].map(id=>rasters.find(raster=>raster.id===id)).filter(Boolean);
+ const size=Math.min(4096,Math.max(...layers.map(layer=>numeric[layer.id]?.width||layer.width)));
+ const canvas=document.createElement('canvas'),rasterCanvas=document.createElement('canvas');
+ canvas.width=canvas.height=size;
+ const context=canvas.getContext('2d'),rasterContext=rasterCanvas.getContext('2d');
+ try{
+  for(const layer of layers){
+   let image;
+   if(numeric[layer.id]){
+    const raster=terrainPixels(numeric[layer.id],layer.id,size);
+    rasterCanvas.width=raster.width;rasterCanvas.height=raster.height;
+    rasterContext.putImageData(new ImageData(raster.pixels,raster.width,raster.height),0,0);
+    image=rasterCanvas;
+   }else image=await loadImage(layer.data);
+   context.globalAlpha=layer.id==='depth'&&layers.length===2?.85:1;
+   context.drawImage(image,0,0,size,size);
+   rasterCanvas.width=rasterCanvas.height=1;
+  }
+  if(numeric.elevation&&Number.isFinite(seaLevel))drawTerrainContours(context,size,terrainContours(numeric.elevation,numeric.depth,seaLevel));
+  return await canvasPng(canvas);
+ }finally{
+  canvas.width=canvas.height=rasterCanvas.width=rasterCanvas.height=1;
+ }
+}
+
+let mapDataExportBusy=false,terrainExportSnapshot=null;
+function syncTerrainPngExport(){
+ $('confirmTerrainPng').disabled=!terrainExportSnapshot||
+  (terrainExportSnapshot.numeric.elevation&&(!$('terrainSeaLevel').value||!$('terrainSeaLevel').validity.valid));
+}
+$('terrainSeaLevel').oninput=syncTerrainPngExport;
+$('terrainPngDialog').addEventListener('close',()=>{terrainExportSnapshot=null;syncTerrainPngExport();});
+
+async function openTerrainPngExport(){
+ const dialog=$('terrainPngDialog');
+ if(mapDataExportBusy||dialog.open)return;
+ const source=project,revision=editRevision;
+ if(!source.rasters.some(r=>r.id==='elevation'||r.id==='depth')){
+  toast('请先导入高程或水深图层，再导出地形 PNG。');return;
+ }
+ const status=$('terrainDatumStatus'),input=$('terrainSeaLevel');
+ terrainExportSnapshot=null;$('terrainSeaLevelField').hidden=true;input.value='';
+ status.textContent='正在读取地形与水深数据…';syncTerrainPngExport();
+ dialog.showModal();
+ mapDataExportBusy=true;
+ try{
+  await new Promise(resolve=>setTimeout(resolve,25));
+  await ensureTerrainFiles();
+  if(project!==source||revision!==editRevision)throw Error('工程已变化，请重新导出');
+  if(!dialog.open)return;
+  const raw=activeTerrainFiles();
+  const numeric=Object.fromEntries([...raw].map(([id,bytes])=>[id,readExportTerrain(bytes)]));
+  terrainExportSnapshot={source,revision,numeric};
+  if(numeric.elevation){
+   const estimated=estimateSeaLevel(numeric.elevation,numeric.depth);
+   const manual=source.settings.editor.topographicTerrain.seaLevel,datum=manual??estimated;
+   terrainExportSnapshot.estimated=estimated;terrainExportSnapshot.initialDatum=datum;
+   $('terrainSeaLevelField').hidden=false;input.value=datum??'';
+   status.textContent=manual!==null?'使用等高线图层设置的海平面 '+manual+' 米。':estimated===null?'无法从边缘水域确定海平面，请手动填写基准高程。':
+    '已根据边缘水域推算海平面为 '+estimated+' 米，可手动校准。';
+  }else{
+   status.textContent='缺少原始高程数据，本次导出彩色地形图。';
+  }
+  syncTerrainPngExport();
+ }catch(error){status.textContent='读取地形失败：'+error.message;}
+ finally{mapDataExportBusy=false;}
+}
+
+$('confirmTerrainPng').onclick=async()=>{
+ const snapshot=terrainExportSnapshot;
+ if(mapDataExportBusy||!snapshot||$('confirmTerrainPng').disabled)return;
+ const {source,revision,numeric}=snapshot,seaLevel=numeric.elevation?$('terrainSeaLevel').valueAsNumber:0;
+ const title=safeProjectName().slice(0,-'.cs2map'.length);
+ $('terrainPngDialog').close();
+ mapDataExportBusy=true;
+ try{
+  toast('正在生成地形 PNG…');await new Promise(resolve=>setTimeout(resolve,25));
+  if(project!==source||revision!==editRevision)throw Error('工程已变化，请重新导出');
+  const png=await terrainPng(source.rasters,numeric,seaLevel);
+  await download(png,title+'-地形.png','image/png');
+  if(numeric.elevation&&source===project&&revision===editRevision&&seaLevel!==snapshot.initialDatum){
+   checkpoint();source.settings.editor.topographicTerrain.seaLevel=seaLevel===snapshot.estimated?null:seaLevel;changed();
+  }
+  toast(numeric.elevation?'已导出地形 PNG（以海平面为 0 米）':'已导出地形 PNG，缺少原始高程数据，无法绘制等高线。');
+ }catch(error){
+  toast(error.name==='AbortError'?'已取消导出':'地形 PNG 导出失败：'+error.message);
+ }finally{mapDataExportBusy=false;}
+};
+
+async function exportMapData(){
+ if(mapDataExportBusy)return;
+ const source=project,revision=editRevision,title=safeProjectName().slice(0,-'.cs2map'.length);
+ mapDataExportBusy=true;
+ try{
+  toast('正在生成地图数据包…');
+  await new Promise(resolve=>setTimeout(resolve,25));await ensureTerrainFiles();
+  if(project!==source||revision!==editRevision)throw Error('工程已变化，请重新导出');
+  const {bytes,hasTerrain}=await packMapData(source,activeTerrainFiles());
+  await download(bytes,title+'-地图数据.zip','application/zip');
+  toast(hasTerrain?'已导出地图数据包':'已导出地图数据包。当前工程没有原始地形数值。');
+ }catch(error){
+  toast(error.name==='AbortError'?'已取消导出':'地图数据包导出失败：'+error.message);
+ }finally{mapDataExportBusy=false;}
+}
+$('exportMenuBtn').onclick=()=>$('exportMenuDialog').showModal();
+const exportCommands={carto:()=>$('exportCartoBtn').click(),map:openPngExport,data:exportMapData,terrain:openTerrainPngExport};
+for(const button of $('exportMenuDialog').querySelectorAll('[data-export]')){
+ button.onclick=()=>{
+  $('exportMenuDialog').close();
+  exportCommands[button.dataset.export]();
+ };
+}
 
 // Building catalogs contain only the footprint and the dimensions needed for planning.
 function syncAssetPanelTabs(){

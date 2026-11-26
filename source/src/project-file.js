@@ -1,5 +1,5 @@
 import {projectAssetPacksForSave} from './building-assets.js';
-import {createZip,readZip} from './archive.js';
+import {compressZipEntry,createZip,readZip} from './archive.js';
 import {prepareEditor} from './model.js';
 const projectEncoder=new TextEncoder();
 export function fromBase64(text){const raw=atob(text),bytes=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);return bytes;}
@@ -19,13 +19,7 @@ export function packProject(project,options){
 }
 export async function packTauriProject(project,options){
  const entries=projectArchiveEntries(project,options,true);
- for(const entry of entries){
-  if(!entry.name.startsWith('GeoTIFF/'))continue;
-  // ZIP method 8 uses raw DEFLATE. The zlib stream adds a 2-byte header and a 4-byte checksum.
-  const stream=new Blob([entry.data]).stream().pipeThrough(new CompressionStream('deflate'));
-  const compressed=new Uint8Array(await new Response(stream).arrayBuffer());
-  entry.deflated=compressed.subarray(2,compressed.length-4);
- }
+ for(const entry of entries)if(entry.name.startsWith('GeoTIFF/'))await compressZipEntry(entry);
  return createZip(entries);
 }
 export async function unpackProject(input){

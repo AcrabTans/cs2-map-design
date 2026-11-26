@@ -133,7 +133,7 @@ export function municipalClass(f){
 }
 export const municipalVisible=(editor,id)=>id!=='traffic-lights'?editor.municipalVisibility?.[id]!==false:editor.municipalVisibility?.[id]===true;
 export const groupForLayer=key=>key==='zone'||key.startsWith('district:')?'area':key.startsWith('road:')?'network':key.split(':')[0];
-export const layerKeysForGroup=group=>group==='area'?['district:large','district:small','zone','district:tile']:group==='network'?[...ROADS.filter(r=>r.id!=='bus').map(r=>'road:'+r.id),'road:interchange']:group==='building'?BUILDINGS.map(([id])=>'building:'+id):group==='route'?['route:bus','route:metro','route:train','route:water','route:air','route:other']:group==='terrain'?['terrain:elevation','terrain:depth','terrain:landwater']:group==='zoning'?['zoning:boundary']:[];
+export const layerKeysForGroup=group=>group==='area'?['district:large','district:small','zone','district:tile']:group==='network'?[...ROADS.filter(r=>r.id!=='bus').map(r=>'road:'+r.id),'road:interchange']:group==='building'?BUILDINGS.map(([id])=>'building:'+id):group==='route'?['route:bus','route:metro','route:train','route:water','route:air','route:other']:group==='terrain'?['terrain:elevation','terrain:depth','terrain:landwater','terrain:topographic']:group==='zoning'?['zoning:boundary']:[];
 export function blockClass(f){
  if(BLOCK_CLASSES.some(c=>c[0]===f.category))return f.category;
  const t=f.type;
@@ -166,7 +166,7 @@ export function roadStyleColors(color){
 }
 export function editorDefaults(){
  const keys=[...GROUPS.flatMap(([g])=>layerKeysForGroup(g)),'building','road:bus'];
- return {municipalVisibility:Object.fromEntries(MUNICIPAL_TYPES.map(([id])=>[id,id!=='traffic-lights'])),visibilityDefaultsVersion:1,origins:{carto:true,planning:true},lockCarto:true,showBuiltPlanning:false,groups:Object.fromEntries(GROUPS.map(([k])=>[k,k!=='zoning'])),groupLabels:Object.fromEntries(GROUPS.map(([k])=>[k,false])),layers:Object.fromEntries(keys.map(k=>[k,{visible:!['terrain:landwater','building:municipal'].includes(k),locked:false,manual:true,ai:true,labelsVisible:false}])),roadStyles:Object.fromEntries(ROADS.map(r=>[r.id,{...roadStyleColors(r.color),width:r.width,corridor:r.corridor}])),structures:{ground:true,elevated:true,bridge:true,tunnel:true},simpleTerrain:{landColor:'#d8edcf',waterColor:'#66b8e5',opacity:100},networkOutlines:false,networkStyleVersion:2,widthMode:'actual',railSegment:24,routeWidth:2,pngSize:4096,labelSize:11};
+ return {municipalVisibility:Object.fromEntries(MUNICIPAL_TYPES.map(([id])=>[id,id!=='traffic-lights'])),visibilityDefaultsVersion:1,origins:{carto:true,planning:true},lockCarto:true,showBuiltPlanning:false,groups:Object.fromEntries(GROUPS.map(([k])=>[k,k!=='zoning'])),groupLabels:Object.fromEntries(GROUPS.map(([k])=>[k,false])),layers:Object.fromEntries(keys.map(k=>[k,{visible:!['terrain:landwater','terrain:topographic','building:municipal'].includes(k),locked:false,manual:true,ai:true,labelsVisible:false}])),roadStyles:Object.fromEntries(ROADS.map(r=>[r.id,{...roadStyleColors(r.color),width:r.width,corridor:r.corridor}])),structures:{ground:true,elevated:true,bridge:true,tunnel:true},simpleTerrain:{landColor:'#d8edcf',waterColor:'#66b8e5',opacity:100},topographicTerrain:{seaLevel:null,opacity:100},networkOutlines:false,networkStyleVersion:2,widthMode:'actual',railSegment:24,routeWidth:2,pngSize:4096,labelSize:11};
 }
 export const editorSettings=p=>p.settings.editor||editorDefaults();
 export function isTrafficLight(f){
@@ -298,6 +298,7 @@ export function validateEditorProject(clean,data){
   for(const k of Object.keys(e.structures))if(typeof src.structures?.[k]==='boolean')e.structures[k]=src.structures[k];
   if(src.networkStyleVersion===2&&typeof src.networkOutlines==='boolean')e.networkOutlines=src.networkOutlines;
   if(src.simpleTerrain){const t=src.simpleTerrain;if(!color(t.landColor)||!color(t.waterColor)||!Number.isFinite(t.opacity)||t.opacity<0||t.opacity>100)throw Error('简图显示设定无效');e.simpleTerrain={landColor:t.landColor.toLowerCase()==='#f0ead7'?'#d8edcf':t.landColor,waterColor:t.waterColor.toLowerCase()==='#9dcddd'?'#66b8e5':t.waterColor,opacity:t.opacity};}
+  if(src.topographicTerrain){const t=src.topographicTerrain;if(Number.isFinite(t.opacity))e.topographicTerrain.opacity=Math.max(0,Math.min(100,t.opacity));if(Number.isFinite(t.seaLevel)&&Math.abs(t.seaLevel)<=1000000)e.topographicTerrain.seaLevel=t.seaLevel;}
   if([2048,4096,8192].includes(src.pngSize))e.pngSize=src.pngSize;
   if(Number.isFinite(src.labelSize))e.labelSize=Math.max(8,Math.min(24,src.labelSize));
  }

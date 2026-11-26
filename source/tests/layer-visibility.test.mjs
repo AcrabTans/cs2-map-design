@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {initialProject,prepareEditor,layerKey,groupForLayer,visibleInEditor} from '../src/model.js';
+import {initialProject,prepareEditor,layerKey,groupForLayer,visibleInEditor,layerKeysForGroup} from '../src/model.js';
 test('Carto zoning has an independent toggle and manual planning blocks remain in Area',()=>{
  let p=prepareEditor(initialProject());const imported={kind:'zone',carto:{layers:['Zoning_Boundary']}},manual={kind:'zone'};
  assert.equal(layerKey(imported),'zoning:boundary');assert.equal(groupForLayer(layerKey(manual)),'area');
@@ -19,4 +19,19 @@ test('traffic-light POIs are excluded while other transport facilities remain vi
  assert.equal(visibleInEditor(p,signal),false);
  assert.equal(visibleInEditor(p,{...signal,name:'红绿灯',attributes:{}}),false);
  assert.equal(visibleInEditor(p,{...signal,name:'Station',attributes:{Category:'StopPassengerTrain'}}),true);
+});
+
+test('the derived topographic layer is independent and migrates older projects',()=>{
+ const old=prepareEditor(initialProject());
+ delete old.settings.editor.layers['terrain:topographic'];delete old.settings.editor.topographicTerrain;
+ const upgraded=prepareEditor(old);
+ assert.equal(layerKeysForGroup('terrain').length,4);
+ assert.equal(upgraded.settings.editor.layers['terrain:topographic'].visible,false);
+ assert.equal(upgraded.settings.editor.layers['terrain:elevation'].visible,true);
+ assert.deepEqual(upgraded.settings.editor.topographicTerrain,{seaLevel:null,opacity:100});
+ upgraded.settings.editor.layers['terrain:topographic'].visible=true;
+ upgraded.settings.editor.topographicTerrain={seaLevel:95,opacity:75};
+ const saved=prepareEditor(upgraded);
+ assert.equal(saved.settings.editor.layers['terrain:topographic'].visible,true);
+ assert.deepEqual(saved.settings.editor.topographicTerrain,{seaLevel:95,opacity:75});
 });

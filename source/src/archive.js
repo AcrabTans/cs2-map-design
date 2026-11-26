@@ -10,6 +10,13 @@ export function crc32(bytes){
  return (crc^0xffffffff)>>>0;
 }
 export function joinBytes(parts){const out=new Uint8Array(parts.reduce((n,p)=>n+p.length,0));let at=0;for(const p of parts){out.set(p,at);at+=p.length;}return out;}
+export async function compressZipEntry(entry){
+ if(typeof CompressionStream==='undefined')return;
+ const stream=new Blob([entry.data]).stream().pipeThrough(new CompressionStream('deflate'));
+ const compressed=new Uint8Array(await new Response(stream).arrayBuffer());
+ // ZIP uses raw DEFLATE, without the zlib header and checksum.
+ entry.deflated=compressed.subarray(2,compressed.length-4);
+}
 export function createZip(entries){
  const local=[],central=[];let offset=0;
  if(entries.length>65535)throw Error('文件数量超过 ZIP 限制');

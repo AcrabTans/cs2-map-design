@@ -66,3 +66,36 @@ export function terrainPixels(raster,type,maxSize=2048){
  }
  return {width:size,height:size,pixels};
 }
+
+// Carto records terrain heights relative to the game origin. Estimate sea level
+// from water adjoining the map edge, using terrain + water depth at matched cells.
+export function estimateSeaLevel(elevation,depth){
+ if(!elevation||!depth)return null;
+ const {width,height,values}=depth;
+ const stride=Math.max(1,Math.floor(Math.min(width,height)/512));
+ const band=Math.max(1,Math.floor(Math.min(width,height)/16));
+ const samples=[];
+ function scan(x,y,dx,dy){
+  for(let k=0;k<band;k+=stride){
+   const col=x+k*dx,row=y+k*dy,d=values[row*width+col];
+   if(!(d>0))break;
+   const px=Math.max(0,Math.min(elevation.width-1,(col+.5)*elevation.width/width-.5));
+   const py=Math.max(0,Math.min(elevation.height-1,(row+.5)*elevation.height/height-.5));
+   const x0=Math.floor(px),y0=Math.floor(py),x1=Math.min(elevation.width-1,x0+1),y1=Math.min(elevation.height-1,y0+1);
+   const tx=px-x0,ty=py-y0,v=elevation.values,ew=elevation.width;
+   const top=v[y0*ew+x0]*(1-tx)+v[y0*ew+x1]*tx;
+   const bottom=v[y1*ew+x0]*(1-tx)+v[y1*ew+x1]*tx;
+   const surface=top*(1-ty)+bottom*ty+d;
+   if(Number.isFinite(surface))samples.push({surface,depth:d});
+  }
+ }
+ for(let x=0;x<width;x+=stride){scan(x,0,0,1);scan(x,height-1,0,-1);}
+ for(let y=0;y<height;y+=stride){scan(0,y,1,0);scan(width-1,y,-1,0);}
+ if(samples.length<8)return null;
+ const maxDepth=samples.reduce((max,sample)=>Math.max(max,sample.depth),0);
+ const deep=samples.filter(sample=>sample.depth>=Math.min(15,maxDepth/4));
+ const surfaces=(deep.length>=8?deep:samples).map(sample=>sample.surface).sort((a,b)=>a-b);
+ const q=f=>surfaces[Math.floor((surfaces.length-1)*f)];
+ if(q(.75)-q(.25)>5)return null;
+ return Math.round(q(.5));
+}

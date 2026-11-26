@@ -5,7 +5,12 @@ if (window.__TAURI__) {
   const action = (label, key, accelerator, setting) => ({label, key, accelerator, setting});
   const separator = {type:'separator'};
   const menus = [
-    {label:'文件',submenu:[action('新建工程','newProjectBtn','Ctrl+N'),action('打开工程','openProjectTop','Ctrl+O'),action('打开项目文件夹','openProjectFolderTop'),separator,action('保存','saveProjectTop','Ctrl+S'),action('另存为','saveAsProjectTop','Ctrl+Shift+S'),action('工程设置','projectBtn'),separator,action('导入 Carto 文件夹','cartoFolderBtn'),action('导出 Carto','exportCartoBtn'),action('导出 PNG','exportPngBtn'),separator,action('退出','close-app')]},
+    {label:'文件',submenu:[
+      action('新建工程','newProjectBtn','Ctrl+N'),action('打开工程','openProjectTop','Ctrl+O'),action('打开项目文件夹','openProjectFolderTop'),separator,
+      action('保存','saveProjectTop','Ctrl+S'),action('另存为','saveAsProjectTop','Ctrl+Shift+S'),action('工程设置','projectBtn'),separator,
+      action('导入 Carto 文件夹','cartoFolderBtn'),action('导出 Carto','exportCartoBtn'),action('导出 PNG','exportPngBtn'),
+      action('导出地图数据包（ZIP）','exportMapDataBtn'),action('导出地形 PNG','exportTerrainPngBtn'),separator,action('退出','close-app')
+    ]},
     {label:'编辑',submenu:[action('撤销','undoBtn','Ctrl+Z'),action('恢复','redoBtn','Ctrl+Shift+Z'),separator,action('剪切','edit-cut'),action('复制','edit-copy'),action('粘贴','edit-paste'),action('全选','edit-selectAll'),separator,action('显示 500 m 参考网格','gridToggle',null,'gridToggle'),action('断点 / 节点吸附','snapToggle',null,'snapToggle'),action('显示名称与标签','notesVisible',null,'notesVisible'),action('显示路网预留走廊','corridorsToggle',null,'corridorsToggle'),separator,action('隐藏右栏','toggleInspector'),action('地图放大','zoomIn'),action('地图缩小','zoomOut'),action('全屏','fullscreen-app','F11')]},
     {label:'图层',submenu:[action('图层管理','manageLayers'),action('底图管理','manageBasemaps'),action('区块透明度','zoneOpacitySettings'),separator,action('导入底图','baseImportBtn'),action('导入 Carto 图层','cartoFolderBtn'),separator,action('叠加导入手绘规划','importPlanning'),action('单独导出手绘规划','exportPlanning')]},
     {label:'资产',submenu:[action('内置本体建筑','openBuiltinAssets'),action('导入建筑资产包','importBuildingLibrary'),action('资产包管理','manageAssetPacks')]},
