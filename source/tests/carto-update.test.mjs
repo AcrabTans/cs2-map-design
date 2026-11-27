@@ -4,6 +4,7 @@ import {initialProject,prepareEditor} from '../src/model.js';
 import {exportCarto,cartoExportRecords,packCartoRecords} from '../src/carto-export.js';
 import {readZip} from '../src/archive.js';
 import {inspectCartoFolder,mergeCartoImport} from '../src/carto.js';
+import {packProject,unpackProject} from '../src/project-file.js';
 const road=(id,y)=>({id,kind:'road',type:'arterial',name:id,notes:'',points:[[100,y],[900,y]],width:40,corridor:64,structure:'ground'});
 async function inspect(features,omit=[]){
  const entries=await readZip(exportCarto(prepareEditor({...initialProject(),features})).bytes);
@@ -68,4 +69,18 @@ test('Carto preview can be reused to package export without accumulating warning
  const result=packCartoRecords(preview,{terrainFiles,includeTerrain:true});
  assert.deepEqual(result.bytes,exportCarto(project,{terrainFiles,includeTerrain:true}).bytes);
  assert.deepEqual(preview.warnings,warnings);
+});
+
+test('large existing cities retain every Carto zoning cell when imported and saved',async()=>{
+ const carto={dataset:'large-city',layers:['Zoning_Boundary'],crs:'EPSG:32631',encoding:'utf-8',frame:[0,0,14336,14336]};
+ const features=Array.from({length:21000},(_,i)=>{
+  const x=i%150*8,y=Math.floor(i/150)*8;
+  return {id:'cell-'+i,kind:'zone',type:'mid-res',name:'住宅',notes:'',points:[[x,y],[x+8,y],[x+8,y+8],[x,y+8]],carto:{...carto,recordId:i+1},attributes:{Density:'Medium'}};
+ });
+ const result=mergeCartoImport(prepareEditor(initialProject()),{dataset:carto.dataset,sourceLayers:['Zoning_Boundary'],features},[]);
+ assert.equal(result.project.features.length,features.length);
+ assert.equal(result.project.settings.editor.groups.zoning,false);
+ const reopened=await unpackProject(packProject(result.project));
+ assert.equal(reopened.project.features.length,features.length);
+ assert.deepEqual(reopened.project.features.at(-1),features.at(-1));
 });

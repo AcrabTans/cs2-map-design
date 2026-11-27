@@ -1,11 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createEditScheduler,createSnapIndex,createRoadSegmentIndex,createCrossingCache} from '../src/edit-performance.js';
+import {createEditScheduler,createSnapIndex,createRoadSegmentIndex,createCrossingCache,createFeatureViewportIndex} from '../src/edit-performance.js';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {networkDisplay} from '../src/network-display.js';
 import {initialProject,prepareEditor,geometryParts,nearestGeometryEdge,insertGeometryNodes} from '../src/model.js';
 import {featureHistorySnapshot,restoreFeatureHistory} from '../src/desktop-runtime.js';
+test('viewport query keeps crossing features and matches map source ordering',()=>{
+ const features=[{id:'outside',kind:'road',points:[[2000,2000],[3000,2000]],width:16,corridor:24},{id:'crossing',kind:'road',points:[[0,500],[10000,500]],width:20,corridor:40},{id:'inside',kind:'building',points:[[500,520],[550,520],[550,550]]},{id:'outline',kind:'building',points:[[3000,3000],[3500,3000],[3500,3200]],outlineParts:[[[500,500],[600,500],[600,600]]]}];
+ const index=createFeatureViewportIndex(features);
+ assert.deepEqual(index.query([450,490,650,650]).map(f=>f.id),['crossing','inside','outline']);
+ assert.deepEqual(index.query([10500,10000,11000,11000]),[]);
+});
 test('drag bursts paint once per frame and release flushes the latest geometry',()=>{
  const callbacks=new Map();let token=0,painted=[],x=0;
  const scheduler=createEditScheduler(()=>painted.push(x),{frame:cb=>{callbacks.set(++token,cb);return token;},cancelFrame:id=>callbacks.delete(id)});

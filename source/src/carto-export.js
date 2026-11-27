@@ -1,5 +1,6 @@
 import {SIZE,CARTO_FIELDS,prepareEditor,area,length,pointInPolygon,classInfo,blockClass,buildingCategory} from './model.js';
 import {createZip} from './archive.js';
+import {splitCartoRoad} from './carto-road-chains.js';
 export const CARTO_EXPORT_LAYERS=[['Area_Boundary',5,'area'],['Network_Centerline',3,'network'],['Network_Boundary',5,'network'],['Building_Boundary',5,'building'],['POI_Location',1,'poi'],['Route_Centerline',3,'route'],['Zoning_Boundary',5,'zoning']];
 const cartoPrj='PROJCS["WGS_1984_UTM_Zone_31N",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",500000.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",3.0],PARAMETER["Scale_Factor",0.9996],PARAMETER["Latitude_Of_Origin",0.0],UNIT["Meter",1.0]]';
 const cartoExportEncoder=new TextEncoder();
@@ -26,9 +27,9 @@ export function cartoExportRecords(project){
  const p=prepareEditor(project),frame=p.rasters.find(r=>r.metadata.bounds)?.metadata.bounds||p.features.find(f=>f.carto?.frame)?.carto.frame||[158853.44317933184,-7168,173189.44317933184,7168];
  if(p.rasters.some(r=>r.metadata.crs&&r.metadata.crs!=='EPSG:32631'))throw Error('当前导出支持 Carto 的 EPSG:32631 坐标系');
  const world=pt=>[frame[0]+pt[0],frame[3]-pt[1]],records=Object.fromEntries(CARTO_EXPORT_LAYERS.map(([name])=>[name,[]])),warnings=[];
- function add(layer,f,parts,defaults={}){if(!parts.length)return;const polygons=['Area_Boundary','Network_Boundary','Building_Boundary','Zoning_Boundary'].includes(layer);const mapped=parts.map(ps=>ps.map(world)),geometry=polygons?shapefileRings(mapped):mapped;if(!geometry.length){warnings.push('跳过退化几何：'+f.name);return;}
-  const attrs={...defaults,...f.attributes,Name:f.name,...planAttributes(f)};
-  if(layer.startsWith('Network_'))Object.assign(attrs,{Length:length(f.points),Width:f.width,Form:({ground:'Normal',bridge:'Elevated',elevated:'Elevated',tunnel:'Tunnel'})[f.structure]});
+ function add(layer,f,parts,defaults={},sourceSegment=false){if(!parts.length)return;const polygons=['Area_Boundary','Network_Boundary','Building_Boundary','Zoning_Boundary'].includes(layer);const mapped=parts.map(ps=>ps.map(world)),geometry=polygons?shapefileRings(mapped):mapped;if(!geometry.length){warnings.push('跳过退化几何：'+f.name);return;}
+  const attrs={...defaults,...f.attributes,Name:f.name,...(sourceSegment?{}:planAttributes(f))};
+  if(layer.startsWith('Network_'))Object.assign(attrs,{Length:sourceSegment&&f.sourceGeometryUnchanged&&Number.isFinite(f.attributes?.Length)?f.attributes.Length:length(f.points),Width:f.width,Form:({ground:'Normal',bridge:'Elevated',elevated:'Elevated',tunnel:'Tunnel'})[f.structure]});
   if(layer==='Area_Boundary')attrs.Area=area(f.points);if(layer==='Route_Centerline')Object.assign(attrs,{Length:length(f.points),Color:f.color||p.settings.editor.layers['route:'+f.type]?.color||defaults.Color});
   if(layer==='Zoning_Boundary')attrs.Color=f.color||classInfo(f)[2];records[layer].push({parts:geometry,attributes:attrs});
  }
@@ -38,8 +39,14 @@ export function cartoExportRecords(project){
   else if(f.kind==='route'||f.kind==='road'&&f.type==='bus')add('Route_Centerline',f,[f.points],{Object:'Route',Transport:({bus:'Bus',metro:'Subway',train:'Train',water:'Ship',air:'Airplane'})[f.type]||'Other',Color:f.color||'#2e98c0'});
   else if(f.kind==='road'){
    const defaults={Category:networkCategories[f.type],Object:['rail','metro'].includes(f.type)?'Track':f.type==='waterway'?'Waterway':'Road',Direction:'Both'};
-   if(f.geometryType!=='polygon')add('Network_Centerline',f,[f.points],defaults);
-   const parts=f.geometryType==='polygon'?[f.points,...(f.additionalParts||[])]:f.outlineParts&&!f.outlineDetached?f.outlineParts:roadFootprint(f.points,f.width);add('Network_Boundary',f,parts,defaults);
+   const segments=splitCartoRoad(f,{exporting:true}),split=segments.length>1;
+   for(const segment of segments){
+    if(segment.geometryType!=='polygon')add('Network_Centerline',segment,[segment.points],defaults,split);
+    const originalOutline=segment.outlineParts&&!segment.outlineDetached;
+    const parts=segment.geometryType==='polygon'?[segment.points,...(segment.additionalParts||[])]:originalOutline?segment.outlineParts:roadFootprint(segment.points,segment.width);
+    add('Network_Boundary',split&&originalOutline?{...segment,attributes:{...segment.outlineAttributes,...segment.attributes}}:segment,parts,defaults,split);
+   }
+   if(f.carto?.segments&&!split)warnings.push('已改变节点数量，以编辑后的完整道路导出：'+f.name);
   }else if(f.kind==='building'){
    const defaults={Category:buildingCategories[buildingCategory(f.type)]||'Other',Object:'Building'};
    if(f.geometryType!=='point')add('Building_Boundary',f,[f.points,...(f.additionalParts||[])],defaults);

@@ -61,3 +61,22 @@ export function createCrossingCache(compute){
   return result;
  },invalidate(){previous=null;result=null;}};
 }
+
+// Static bounding-box grid. The query preserves original drawing order and
+// includes full geometry of features that cross the requested viewport.
+export function createFeatureViewportIndex(features,cellSize=512){
+ const cells=new Map(),bounds=[];
+ for(const [index,f] of features.entries()){
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  for(const part of [f.points,...(f.additionalParts||[]),...(f.outlineParts||[])])for(const [x,y] of part){x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);}
+  const pad=f.kind==='road'?Math.max(f.width||0,f.corridor||0)/2:f.assetPlacement?Math.hypot(...f.assetPlacement.lot)/2:12;
+  const b=[x0-pad,y0-pad,x1+pad,y1+pad];bounds.push(b);
+  for(let x=Math.floor(b[0]/cellSize);x<=Math.floor(b[2]/cellSize);x++)for(let y=Math.floor(b[1]/cellSize);y<=Math.floor(b[3]/cellSize);y++){
+   const k=x+':'+y;if(!cells.has(k))cells.set(k,[]);cells.get(k).push(index);
+  }
+ }
+ return {query(b){const candidates=new Set();
+  for(let x=Math.floor(b[0]/cellSize);x<=Math.floor(b[2]/cellSize);x++)for(let y=Math.floor(b[1]/cellSize);y<=Math.floor(b[3]/cellSize);y++)for(const i of cells.get(x+':'+y)||[])candidates.add(i);
+  return [...candidates].filter(i=>{const a=bounds[i];return a[0]<=b[2]&&a[2]>=b[0]&&a[1]<=b[3]&&a[3]>=b[1];}).sort((a,b)=>a-b).map(i=>features[i]);
+ }};
+}

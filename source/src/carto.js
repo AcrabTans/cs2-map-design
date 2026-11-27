@@ -1,6 +1,7 @@
 import {createPlanningProject} from './planning.js';
 import {SIZE,ROADS,prepareEditor,pointInPolygon,layerKey,groupForLayer,originForFeature,ZONES,BUILDINGS,buildingCategory} from './model.js';
 import {terrainType,readTerrainTiff,checkTerrainExtent,terrainPixels} from './terrain.js';
+import {mergeCartoRoadChains,splitCartoRoad} from './carto-road-chains.js';
 
 const CARTO_LAYERS=['Area_Boundary','Network_Centerline','Network_Boundary','Building_Boundary','POI_Location','Route_Centerline','Zoning_Boundary'];
 const cartoTargets={Area_Boundary:'地块 Area',Network_Centerline:'路网 Network · 中心线',Network_Boundary:'路网 Network · 轮廓',Building_Boundary:'建筑 Building · 轮廓',POI_Location:'建筑 Building · POI',Route_Centerline:'交通 Route',Zoning_Boundary:'用地 Zoning'};
@@ -154,7 +155,9 @@ export async function inspectCartoFolder(files,{existingRasters=[]}={}){
  for(const f of features){const a=f.attributes;if(a?.P_Ver!==1)continue;if(f.kind==='district'&&f.level==='small'&&planIds.has(a.P_Parent))f.parentId=planIds.get(a.P_Parent);if(planIds.has(a.P_Dist))f.districtId=planIds.get(a.P_Dist);}
  if(clipped)warnings.push(`${clipped} 个源对象跨出地图范围，已保留范围内的部分`);if(omitted)warnings.push(`${omitted} 个对象完全在地图外，未导入`);
  if(all.some(f=>/\.geojson$/i.test(f.name)))warnings.push('本次按 Shapefile 导入；同名 GeoJSON 不重复导入');if(all.some(f=>/\.(qml|sld)$/i.test(f.name)))warnings.push('Styles 样式文件已识别，路网使用规划器配色');
- return {dataset,frame,crs,features,rasters:rasterPreviews,table,warnings,pairedOutlines,pairedPoi,sourceLayers:[...layers.keys()],fileCount:all.length,counts:Object.fromEntries([...new Set(features.map(layerKey))].map(key=>[key,features.filter(f=>layerKey(f)===key).length]))};
+ const chains=mergeCartoRoadChains(features),merged=chains.features;
+ if(chains.removed)warnings.push(`已将相连且属性一致的道路段归并为连续道路，减少 ${chains.removed} 个独立对象；原始分段及属性仍保留。`);
+ return {dataset,frame,crs,features:merged,rasters:rasterPreviews,table,warnings,pairedOutlines,pairedPoi,mergedRoadSegments:chains.removed,sourceLayers:[...layers.keys()],fileCount:all.length,counts:Object.fromEntries([...new Set(merged.map(layerKey))].map(key=>[key,merged.filter(f=>layerKey(f)===key).length]))};
 }
 // Older projects store both sources on one feature. Keep the untouched source
 // when only one layer is refreshed, then match it against the new source.
@@ -164,6 +167,7 @@ function keepCartoSource(feature,layer){
  if(layer===primary){
   if(layer==='Network_Centerline'){
    delete feature.outlineParts;delete feature.outlineAttributes;delete feature.outlineDetached;
+   if(feature.carto.segments)for(const s of feature.carto.segments){delete s.outlineParts;delete s.outlineAttributes;}
   }else{
    delete feature.poi;delete feature.poiAttributes;
   }
@@ -225,6 +229,8 @@ export function mergeCartoImport(project,inspection,rasters){
  const p=structuredClone(project),sourceLayers=new Set(inspection.sourceLayers);let replaced=0;
  const existing=new Set(p.features.filter(f=>f.carto).map(f=>f.carto.dataset));if(existing.size&&!existing.has(inspection.dataset))throw Error('地图范围或坐标系与现有 Carto 不同，请新建工程导入，避免错位覆盖规划');
  if(p.features.some(f=>originForFeature(f)==='planning')){const planned=createPlanningProject(p).project.features;p.features=[...p.features.filter(f=>originForFeature(f)==='carto'),...planned];}
+ const partialNetwork=sourceLayers.has(networkPair[0])!==sourceLayers.has(networkPair[1]);
+ if(partialNetwork)p.features=p.features.flatMap(f=>f.carto?.dataset===inspection.dataset?splitCartoRoad(f,{original:sourceLayers.has('Network_Centerline')}):[f]);
  p.features=p.features.flatMap(f=>{
   if(f.carto?.dataset!==inspection.dataset||!f.carto.layers.some(layer=>sourceLayers.has(layer)))return [f];
   const remaining=f.carto.layers.find(layer=>!sourceLayers.has(layer));
@@ -232,7 +238,9 @@ export function mergeCartoImport(project,inspection,rasters){
   const kept=remaining&&keepCartoSource(f,remaining);
   return kept?[kept]:[];
  });
- p.features=repairCartoPairs([...p.features,...structuredClone(inspection.features)],inspection.dataset,sourceLayers);
+ const incoming=structuredClone(inspection.features).flatMap(f=>partialNetwork?splitCartoRoad(f,{original:true}):[f]);
+ p.features=repairCartoPairs([...p.features,...incoming],inspection.dataset,sourceLayers);
+ if(partialNetwork)p.features=mergeCartoRoadChains(p.features).features;
  for(const r of rasters){p.rasters=p.rasters.filter(x=>x.id!==r.id);p.rasters.push(r);}
  const next=prepareEditor(p);next.settings.editor.origins.carto=true;for(const f of inspection.features){if(f.kind==='note'){next.settings.notesVisible=true;continue;}const key=layerKey(f),group=groupForLayer(key);if(group!=='zoning')next.settings.editor.groups[group]=true;if(key!=='building:municipal')next.settings.editor.layers[key].visible=key!=='district:tile';}
  if(rasters.length){next.settings.editor.groups.terrain=true;if(rasters.some(r=>r.id==='depth'))next.settings.editor.layers['terrain:landwater'].visible=true;}
