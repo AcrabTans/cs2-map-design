@@ -57,7 +57,7 @@
 
 滚轮围绕鼠标位置缩放。浏览大型地图时，程序先更新视图，再补绘视野内及周边的对象。比例尺右侧的小条显示地图绘制状态。
 
-![地图规划设计器界面](docs/images/map-design-screenshot.png)
+![地图规划设计器界面](docs/images/map-design-screenshot.webp)
 
 ### 建筑资产
 
