@@ -126,9 +126,15 @@
 .left-panel .panel-heading.editor-tools{display:flex;align-items:center;justify-content:flex-start;gap:3px;padding:9px 8px;min-height:48px;border-bottom:1px solid var(--line);flex-shrink:0}
 .editor-tools button{display:flex;align-items:center;justify-content:center;gap:3px;flex:1;min-width:0;height:29px;padding:3px 5px;font-size:11px;border:0;background:transparent;white-space:nowrap}
 .editor-tools button.active{background:#dfece2;color:#195d48}
+.left-panel .panel-heading.editor-tools{flex-wrap:wrap}
 .editor-tools button:hover{background:#edf4ee}
 .editor-tools .tool-icon{font-size:15px;line-height:1}
 .editor-tools button.history-tool{flex:0 0 27px;font-size:18px;padding:2px}
+.current-edit-layer{padding:5px 11px;background:#edf4ef;color:#315e50;border-bottom:1px solid var(--line);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shape-draw-controls{margin:8px 0;display:grid;gap:4px}
+.shape-draw-controls select{max-width:100%}
+.selection-batch-actions{display:grid;gap:6px;margin:10px 0}
+.selection-batch-list{max-height:220px;overflow:auto}
 .drawing-actions{display:flex;gap:6px;padding:6px 13px;border-bottom:1px solid var(--line)}
 .drawing-actions[hidden]{display:none}.drawing-actions button{padding:5px 9px;font-size:11px}
 /* Keep the existing 29 px bar height with one larger text size. */
@@ -152,6 +158,42 @@ body.map-fullscreen{overflow:hidden}
 .map-render-progress.loading::after{content:'';position:absolute;inset:0 auto 0 -45%;width:45%;border-radius:3px;background:#347f65;animation:map-render-progress .85s linear infinite}
 @keyframes map-render-progress{to{transform:translateX(325%)}}
 #mapSvg.navigation-preview{transform-origin:center center;will-change:transform}
+
+.left-panel .left-scroll #layerTree .layer-section{padding:3px 12px}
+.left-panel #layerTree .group-heading,.left-panel #layerTree .editor-layer{min-height:21px}
+.left-panel #layerTree .editor-layer{margin:0}
+.left-panel #layerTree .category-button{min-height:21px;line-height:17px}
+.left-panel #layerTree .group-fold{width:24px;height:22px}
+.left-panel .origin-controls .check-row{gap:4px;margin-top:3px;min-width:0;white-space:nowrap}
+.origin-carto-row{display:flex;align-items:center;gap:6px}
+.origin-carto-row label:first-child{flex:1 1 auto;overflow:hidden}
+.origin-carto-row label:last-child{flex:0 0 auto}
+.origin-carto-row #cartoOriginCount{overflow:hidden;text-overflow:ellipsis;margin-left:0}
+.origin-carto-row input{flex-shrink:0}
+
+.right-panel .right-scroll{padding:7px 13px}
+.right-panel #propertiesPanel .object-kind{margin:0 0 2px}
+.right-panel #propertiesPanel .property-title{line-height:1.22;margin:2px 0 4px}
+.right-panel #propertiesPanel .property-hint,.right-panel #propertiesPanel .muted{line-height:1.35;margin-top:3px}
+.right-panel #propertiesPanel .field-label{margin:4px 0 2px}
+.right-panel #propertiesPanel .object-origin{padding:5px 7px;margin-bottom:5px}
+.right-panel #propertiesPanel .object-item{min-height:23px;padding:3px 2px;line-height:1.35}
+.right-panel #propertiesPanel .object-list-heading{padding-top:5px;margin:8px 0 3px}
+.right-panel #propertiesPanel .attribute-schema{margin-top:6px;padding-top:4px}
+.right-panel #propertiesPanel .attribute-schema summary{line-height:1.4}
+.right-panel #propertiesPanel #drawLayer{margin-top:2px}
+.layer-property-top{display:flex;align-items:center;min-height:20px;gap:8px}
+.layer-property-top .object-kind{margin-left:auto!important;white-space:nowrap}
+.right-panel .layer-property-top .back-button{padding:0;margin:0}
+.layer-toggles-inline{flex-wrap:nowrap;align-items:center;gap:7px;margin:3px 0 5px}
+.right-panel .layer-toggles-inline .check-row{margin:0;gap:3px;white-space:nowrap}
+.layer-toggles-inline input[type=checkbox]{margin:0;flex-shrink:0}
+.inline-edit-field{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:5px;white-space:nowrap;min-width:0}
+.inline-edit-field input,.inline-edit-field select{min-width:0;width:100%}
+.layer-road-dimensions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:4px 0}
+.right-panel .shape-draw-controls{margin:5px 0;gap:4px}
+.status-controls .scale-bar{margin-right:3px}
+.status-controls .map-render-progress{margin-left:3px}
 
 /* Package selection lives on the left; building cards and placement controls on the right. */
 .asset-library-section{border-bottom:1px solid var(--line)}
@@ -225,8 +267,10 @@ body.map-fullscreen{overflow:hidden}
 .editor-layer:has(.municipal-fold){grid-template-columns:20px minmax(0,1fr) 30px}
 .municipal-fold{padding:0;min-width:28px;font-size:20px}
 .municipal-children{padding-left:18px;border-left:1px solid #dce6df;margin:0 5px 4px 22px}
-.municipal-controls label{display:grid;grid-template-columns:18px minmax(0,1fr) 28px;align-items:center;gap:3px;min-height:28px;margin:0}
-.municipal-controls button{text-align:left;padding:3px 4px;border:0;background:transparent;white-space:normal}
+.municipal-controls label{display:grid;grid-template-columns:15px minmax(0,1fr) 28px;align-items:center;gap:3px;min-height:23px;margin:0}
+.municipal-controls button{display:flex;align-items:center;gap:5px;text-align:left;padding:2px 3px;border:0;background:transparent;white-space:normal}
+.municipal-legend-icon{display:inline-block;vertical-align:middle;width:16px;height:16px;flex-shrink:0}
+.municipal-object-kind .municipal-legend-icon{margin-right:4px}
 .municipal-controls small{color:#82948e;text-align:right}
 .municipal-controls{padding:3px 0}
 .layer-manager-dialog{width:min(760px,90vw);max-height:85vh}

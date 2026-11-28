@@ -27,6 +27,8 @@ const projectFolderSource=(await read('src/project-folder.js')).replace(/^import
 const buildingAssetData=(await read('src/building-asset-data.js')).replace(/^export /gm,'');
 const buildingAssetSource=(await read('src/building-assets.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
 const model=(await read('src/model.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
+const editorGeometrySource=(await read('src/editor-geometry.js')).replace(/^export /gm,'');
+const municipalFacilitiesSource=(await read('src/municipal-facilities.js')).replace(/^export /gm,'');
 const planningSource=(await read('src/planning.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
 const masterPlanSource=(await read('src/master-plan.js')).replace(/^import .*?;\r?\n/gm,'').replace(/^export /gm,'');
 const localBuildingRules=(await read('src/local-building-rules.js')).replace(/^export /gm,'');
@@ -60,7 +62,7 @@ const terrainCorrectionScript=seed&&terrainCorrection?'const TERRAIN_CORRECTION=
 const seedScript=seed?`const SEED_PROJECT=${JSON.stringify(seed).replaceAll('<','\\u003c')};\n`:'';
 html=html.replace('<link rel="stylesheet" href="style.css">',`<style>${await read('src/style.css')}</style>`).replace('<script type="module" src="app.js"></script>',()=>`<script type="module">const BASEMAPS=${JSON.stringify(images)};\nconst THREE_SOURCE=${threeSource};\n${seedScript}${projectSeedExtras}${terrainCorrectionScript}${buildingAssetData}
 ${tauriBridge}\n${desktopRuntime}\n${buildingAssetSource}
-${model}\n${archiveSource}\n${projectFileSource}\n${projectFolderSource}\n${planningSource}\n${masterPlanSource}\n${localBuildingRules}\n${localPlanSource}\n${cartoRoadChainsSource}\n${cartoExportSource}\n${networkDisplaySource}\n${networkCrossingsSource}\n${editPerformanceSource}\n${terrain}\n${terrainContourSource}\n${mapDataExportSource}\n${carto}\n${fileStore}\n${namingSource}\n${meshoptSource}\n${cokSource}\n${cokLodSource}\n${extractorSource}\n${modCatalogSource}\n${extractorPanelSource}\n${lodGlbSource}\n${view3dSource}\n${app}</script>`);
+${editorGeometrySource}\n${municipalFacilitiesSource}\n${model}\n${archiveSource}\n${projectFileSource}\n${projectFolderSource}\n${planningSource}\n${masterPlanSource}\n${localBuildingRules}\n${localPlanSource}\n${cartoRoadChainsSource}\n${cartoExportSource}\n${networkDisplaySource}\n${networkCrossingsSource}\n${editPerformanceSource}\n${terrain}\n${terrainContourSource}\n${mapDataExportSource}\n${carto}\n${fileStore}\n${namingSource}\n${meshoptSource}\n${cokSource}\n${cokLodSource}\n${extractorSource}\n${modCatalogSource}\n${extractorPanelSource}\n${lodGlbSource}\n${view3dSource}\n${app}</script>`);
 const output=path.resolve(root,options['--output']||'../index.html');
 await mkdir(path.dirname(output),{recursive:true});
 await writeFile(output,html);

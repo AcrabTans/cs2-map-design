@@ -22,6 +22,8 @@ import {packMapData,readExportTerrain} from './map-data-export.js';
 import {packProject,packTauriProject,unpackProject,ProjectFileWriter,chooseProjectSaveTarget,fromBase64} from './project-file.js';
 import {createEditScheduler,createSnapIndex,createRoadSegmentIndex,createCrossingCache,createFeatureViewportIndex} from './edit-performance.js';
 import {networkDisplay,mapScrollAxis,createViewportScheduler,wheelZoomFactor} from './network-display.js';
+import {EDITOR_SHAPES,editorShape,geometryInsideEditorBox,findEditorReference} from './editor-geometry.js';
+import {municipalMarkerStyle} from './municipal-facilities.js';
 import {roadStackLevel,isStreetRoad,buildNetworkCrossings,junctionSectors,roadFlatEnds,crossingRelation} from './network-crossings.js';
 import {SIZE,ROADS,ZONES,MUNICIPAL_TYPES,municipalClass,municipalVisible,defaultLayerColor,featureDisplayColor,roadStyleColors,zoneInfo,roadInfo,distance,length,area,nearestGeometryEdge,geometryParts,insertGeometryNodes,initialProject,validateProject,isPolygonFeature,interiorPoint,GROUPS,BLOCK_CLASSES,BUILDINGS,blockClass,classInfo,featureSource,layerKey,visibleInEditor,labelsVisibleInEditor,originForFeature,lockedInEditor,prepareEditor,correctionCopy,validateInterchangeBounds,containedGeometry,buildingCategory,groupForLayer,layerKeysForGroup,CARTO_FIELDS,fieldsForLayer} from './model.js';
 import {terrainType,readTerrainTiff,terrainPixels,checkTerrainExtent,correctTerrainSource,terrainFingerprint,estimateSeaLevel} from './terrain.js';
@@ -33,12 +35,14 @@ import {generateLocalPlan,suggestLocalUses,localConnectionDefaults,maxManualLoca
 import {projectBackup} from './file-store.js';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg',KEY='island-planner-v1';
 let project=initialProject(),history=[],future=[],selected=null,selectedNode=null,tool='select',roadType='arterial',zoneType='mid-res',draft=[],hover=null,snapPoint=null,space=false,drag=null,suppressClick=false,toastTimer,saveTimer;
+let selectedGroup=null,drawingShape='free';
+let referenceTargets=null,referenceFeedback=null;
 const expandedGroups=new Set(),closedAssetGroups=new Set(['dlc','official','third-party']);
 let municipalExpanded=false,activeMunicipalClass=null,snapIndex=null,assetSnapIndex=null,roadSegmentIndex=null;
 let roadSnap=null;
 const draftRoadConnections=new WeakMap();
 const renderCrossingCache=createCrossingCache(buildNetworkCrossings);
-function invalidateEditGeometry(){snapIndex=null;assetSnapIndex=null;roadSegmentIndex=null;renderCrossingCache.invalidate();}
+function invalidateEditGeometry(){snapIndex=null;assetSnapIndex=null;roadSegmentIndex=null;referenceTargets=null;renderCrossingCache.invalidate();}
 let networkJunctions=[],networkMaskBounds={x:0,y:0,width:SIZE,height:SIZE};
 let assetCatalogQuery='',assetCatalogCategory='all',assetCatalogIndex=0;
 const assetCount=new Intl.NumberFormat('zh-CN');
@@ -177,7 +181,7 @@ function installProject(doc){
  projectFolderContext=doc.folderContext||null;
  terrainFiles=new Map();topographicCache=null;for(const r of doc.project.rasters){const raw=doc.terrainFiles?.get(r.id);if(raw&&!repaired.changedIds.includes(r.id))terrainFiles.set(r.id+':'+terrainFingerprint(r.data),raw);}
  openedBaseImages=doc.baseImages||{};projectWriter=doc.writer||new ProjectFileWriter();currentFileName=doc.fileName||safeProjectName();projectDirty=!!(doc.isNew||doc.isRecovered);assetCacheKey=crypto.randomUUID();editRevision++;history=[];future=[];selected=null;selectedNode=null;scopeId='';draft=[];listQuery='';
- const w=doc.workspace||{};activeLayer={key:typeof w.activeLayer==='string'&&(project.settings.editor.layers[w.activeLayer]||GROUPS.some(([g])=>g===w.activeLayer))?w.activeLayer:'area',source:'manual'};expandedGroups.clear();for(const key of w.expandedGroups||[])if(GROUPS.some(([g])=>g===key)){expandedGroups.clear();expandedGroups.add(key);break;}
+ selectedGroup=null;activeMunicipalClass=null;drawingShape='free';const w=doc.workspace||{};activeLayer={key:typeof w.activeLayer==='string'&&(project.settings.editor.layers[w.activeLayer]||GROUPS.some(([g])=>g===w.activeLayer))?w.activeLayer:'area',source:'manual'};expandedGroups.clear();for(const key of w.expandedGroups||[])if(GROUPS.some(([g])=>g===key)){expandedGroups.clear();expandedGroups.add(key);break;}
  if(w.view&&Number.isFinite(w.view.cx)&&Number.isFinite(w.view.cy)&&Number.isFinite(w.view.zoom)&&w.view.zoom>=.5&&w.view.zoom<=35)view={cx:w.view.cx,cy:w.view.cy,scale:fitScale*w.view.zoom};else fitView();
  setTool('select',{redraw:false});buildLayers();syncUI();render();renderProperties();updateUndo();updateSaveStatus();if($('projectDialog').open)$('projectDialog').close();if($('unsavedDialog').open)$('unsavedDialog').close();pendingProject=null;
  if(window.mapDesktop&&!doc.isRecovered)clearDesktopDraft().catch(()=>toast('无法删除上一个工程的恢复草稿'));
@@ -238,7 +242,7 @@ function undo(redo=false){
  }
  from.pop();
  invalidateEditGeometry();
- renderAssetPackages();selected=null;selectedNode=null;draft=[];
+ renderAssetPackages();selected=null;selectedNode=null;selectedGroup=null;draft=[];
  syncUI();render();renderProperties();persist();updateUndo();
 }
 function updateUndo(){$('undoBtn').disabled=!history.length;$('redoBtn').disabled=!future.length}
@@ -309,8 +313,20 @@ function networkCrossingFields(f,disabled){
  return `<label class="field-label" for="editStackLevel">交叉层级</label><input id="editStackLevel" type="number" min="-20" max="20" step="1" placeholder="自动：${roadStackLevel({...f,stackLevel:undefined})}" value="${f.stackLevel??''}" ${disabled}><p class="muted network-crossing-hint">留空按结构：地下 −1、地面 0、高架／桥梁 1。数字越大越在上层；同层公路按平交显示。局部变层时分段绘制。</p><p class="muted">当前可见交叉：平交 ${counts.connected} 处 · 上跨 ${counts.above} 处 · 下穿 ${counts.below} 处</p>`;
 }
 function getSelected(){return project.features.find(f=>f.id===selected)}
-function screenPoint(e){const r=svg.getBoundingClientRect();return [view.cx+(e.clientX-r.left-r.width/2)/view.scale,view.cy+(e.clientY-r.top-r.height/2)/view.scale]}
+function getSelectedFeatures(){
+ if(selectedGroup?.has(selected))return project.features.filter(f=>selectedGroup.has(f.id)&&featureVisible(f));
+ const feature=getSelected();return feature&&featureVisible(feature)?[feature]:[];
+}
+function screenPoint(e){const r=viewport.getBoundingClientRect();return [view.cx+(e.clientX-r.left-r.width/2)/view.scale,view.cy+(e.clientY-r.top-r.height/2)/view.scale]}
 function inMap(p){return p[0]>=0&&p[0]<=SIZE&&p[1]>=0&&p[1]<=SIZE}
+function placeAgainstReference(point,event){
+ referenceFeedback=null;
+ const snap=project.settings.snap,align=project.settings.editor.referenceAlign;
+ if(event.shiftKey||!snap&&!align)return null;
+ referenceTargets??=project.features.filter(f=>f.kind==='reference'&&featureVisible(f));
+ referenceFeedback=findEditorReference(point,referenceTargets,{snap,align,radius:10/view.scale,exclude:drag?.id});
+ return referenceFeedback?.point||null;
+}
 function constrained(e){
  let point=screenPoint(e);
  snapPoint=null;roadSnap=null;
@@ -319,10 +335,12 @@ function constrained(e){
   const angle=Math.round(Math.atan2(point[1]-a[1],point[0]-a[0])/(Math.PI/4))*Math.PI/4;
   point=[a[0]+len*Math.cos(angle),a[1]+len*Math.sin(angle)];
  }
- if(project.settings.snap&&!e.shiftKey){
+ const reference=placeAgainstReference(point,e);
+ if(reference)point=reference;
+ else if(project.settings.snap&&!e.shiftKey){
   const radius=12/view.scale,excluded=drag?.id||null;
   if(!snapIndex||snapIndex.excluded!==excluded){
-   snapIndex={excluded,index:createSnapIndex(project.features,{visible:featureVisible,exclude:excluded})};
+   snapIndex={excluded,index:createSnapIndex(project.features,{visible:f=>f.kind!=='reference'&&featureVisible(f),exclude:excluded})};
   }
   const near=snapIndex.index.nearest(point,radius);
   if(tool==='road'&&isStreetRoad({kind:'road',type:roadType})){
@@ -414,14 +432,19 @@ function refreshNavigationDetails(){
 const viewportScheduler=createViewportScheduler(previewNavigation,refreshNavigationDetails,{delay:150});
 function scheduleMapNavigation(){setMapLoading(true);viewportScheduler.schedule();}
 function zoom(factor,at){const current=view,scale=Math.max(fitScale*.5,Math.min(fitScale*35,current.scale*factor));if(scale===current.scale)return;const p=at||[current.cx,current.cy],ratio=current.scale/scale;view={scale,cx:p[0]-(p[0]-current.cx)*ratio,cy:p[1]-(p[1]-current.cy)*ratio};scheduleMapNavigation();}
-function label(text,p,color,parent,size=11,offsetY=0){const n=node('text',{x:p[0],y:p[1],screen:{'font-size':size,...(offsetY?{y:[p[1],offsetY]}:{})},fill:color,'text-anchor':'middle','paint-order':'stroke','stroke':'#fcfff7','stroke-width':3,'vector-effect':'non-scaling-stroke','stroke-linejoin':'round','pointer-events':'none'},parent);n.textContent=text;return n}
+function label(text,p,color,parent,size=11,offsetY=0,offsetX=0){const n=node('text',{x:p[0],y:p[1],screen:{'font-size':size,...(offsetY?{y:[p[1],offsetY]}:{}),...(offsetX?{x:[p[0],offsetX]}:{})},fill:color,'text-anchor':'middle','paint-order':'stroke','stroke':'#fcfff7','stroke-width':3,'vector-effect':'non-scaling-stroke','stroke-linejoin':'round','pointer-events':'none'},parent);n.textContent=text;return n}
 function workspaceCorridor(f){return basePlanningState&&f.attributes?.PlanStage==='corridors'&&!planningWorkspace.referenceIds.has(f.id);}
 
 function renderBaseLayers(visible){
- for(const id of ['districtShapes','zoneShapes','corridorShapes','roadShapes','routeShapes','networkMasks','noteShapes'])mapElement(id).replaceChildren();
+ for(const id of ['districtShapes','zoneShapes','corridorShapes','roadShapes','routeShapes','networkMasks','noteShapes','referenceShapes'])mapElement(id).replaceChildren();
  const settings=project.settings;mapElement('baseImage').style.display=settings.base==='none'?'none':'';const baseUrl=basemapUrl();if(mapElement('baseImage').getAttribute('href')!==baseUrl)mapElement('baseImage').setAttribute('href',baseUrl);mapElement('baseImage').setAttribute('opacity',settings.baseOpacity/100);mapElement('gridRect').style.display=settings.grid?'':'none';
  renderDistricts(visible);const zoneLabelCandidates=[];
  for(const f of visible){const isSelected=f.id===selected;
+  if(f.kind==='reference'&&mapRoot===svg){
+   const host=mapElement('referenceShapes'),color=featureDisplayColor(project,f);
+   drawReferenceMarker(host,f.points[0],color,f.id);
+   if(labelsVisibleInEditor(project,f))label(f.name,f.points[0],color,host,11,-12);
+  }
   if(f.kind==='zone'){const z=[f.type,zoneInfo(f.type)[1],featureDisplayColor(project,f)];const shape=node('path',{d:featurePath(f,true),fill:polygonFill(f,z[2]),'fill-rule':'evenodd','fill-opacity':settings.zoneOpacity/100,stroke:z[2],'stroke-width':1.3,'vector-effect':'non-scaling-stroke','stroke-dasharray':'none','data-id':f.id},mapElement('zoneShapes'));const hint=node('title',{},shape);hint.textContent=`${f.name} · ${z[1]} · ${fmtArea(area(f.points))}`;if(labelsVisibleInEditor(project,f)){const c=interiorPoint(f.points);if(project.proposal)zoneLabelCandidates.push({f,p:c});else label(f.tags?f.name+' · '+f.tags:f.name,c,'#3e6252',mapElement('noteShapes'),11)}}
   if(f.kind==='route'||f.kind==='road'&&f.type==='bus')renderNetworkFeature(f,!!project.proposal&&isSelected);
   if(f.kind==='note'){const p=f.points[0];
@@ -440,19 +463,106 @@ function renderBaseLayers(visible){
   for(const {f,p}of zoneLabelCandidates){const chosen=f.id===selected,rank=ranks[f.type]||4;if(!chosen&&((rank>=8&&view.scale/fitScale<3)||area(f.points)*view.scale*view.scale<220||f.name.endsWith(' · 分区')))continue;const halfW=([...f.name].length*10+10)/view.scale/2,halfH=8/view.scale,b=[p[0]-halfW,p[1]-halfH,p[0]+halfW,p[1]+halfH];if(!chosen&&placed.some(c=>b[0]<c[2]&&b[2]>c[0]&&b[1]<c[3]&&b[3]>c[1]))continue;placed.push(b);label(f.tags?f.name+' · '+f.tags:f.name,p,'#355d4c',mapElement('noteShapes'),10);}
  }
 }
-function renderDraft(){if(tool==='asset-place'){renderAssetPreview();return;}$('drawingActions').hidden=draft.length===0;const group=$('draftShapes');group.replaceChildren();$('finishBtn').disabled=draft.length<(tool==='building'&&buildingGeometry==='point'?1:['zone','district','building','interchange'].includes(tool)?3:2);const points=[...draft];if(hover&&draft.length)points.push(hover);if(!points.length)return;const color=tool==='road'?roadInfo(roadType).color:tool==='zone'?zoneInfo(zoneType)[2]:tool==='district'?'#598c8c':'#315e50';
+function drawGeometryGuides(geometry,host){
+ if(!geometry||!project.settings.editor.geometryGuides)return;
+ const guides=node('g',{'pointer-events':'none','data-geometry-guides':''},host),color='#495d8b';
+ const occupied=[...geometry.controls,...geometry.markers.map(marker=>marker.point)].map(([x,y])=>{
+  const px=x*view.scale,py=y*view.scale;
+  return [px-7,py-7,px+7,py+7];
+ });
+ const guideTextWidth=text=>[...text].reduce((n,c)=>n+(c.charCodeAt(0)>255?11:6),6);
+ function guideLabel(text,point,offsets){
+  const width=guideTextWidth(text);
+  let chosen=offsets[0],bounds;
+  for(const offset of offsets){
+   chosen=offset;const x=point[0]*view.scale+offset[0],y=point[1]*view.scale+offset[1];
+   bounds=[x-width/2,y-12,x+width/2,y+3];
+   if(!occupied.some(([l,t,r,b])=>l<bounds[2]&&r>bounds[0]&&t<bounds[3]&&b>bounds[1]))break;
+  }
+  occupied.push(bounds);
+  return label(text,point,color,guides,11,chosen[1],chosen[0]);
+ }
+ for(const line of geometry.lines)node('path',{d:pathData(line.points),fill:'none',stroke:color,'stroke-width':1.2,'stroke-dasharray':line.secondary?'2 4':'5 4','vector-effect':'non-scaling-stroke'},guides);
+ for(const {point,label:title} of geometry.markers){
+  node('circle',{cx:point[0],cy:point[1],screen:{r:3.5},fill:'#fff',stroke:color,'stroke-width':1.5,'vector-effect':'non-scaling-stroke','data-guide-label':title},guides);
+  guideLabel(title,point,[[0,-11],[0,17],[-28,-11],[28,-11],[0,-28]]);
+ }
+ for(const {points:[a,b],label:title,secondary} of geometry.lines){
+  const meters=distance(a,b),mid=[(a[0]+b[0])/2,(a[1]+b[1])/2];
+  const nx=(a[1]-b[1])/meters,ny=(b[0]-a[0])/meters;
+  const direction=secondary?1:-1;
+  const text=`${title} ${meters.toLocaleString('zh-CN',{maximumFractionDigits:2})} m`;
+  const gap=9+Math.abs(nx)*guideTextWidth(text)/2+Math.abs(ny)*8;
+  const offsets=[gap,-gap,gap+16,-gap-16,gap+32,-gap-32].map(offset=>[nx*offset*direction,4+ny*offset*direction]);
+  const tag=guideLabel(text,mid,offsets);
+  tag.setAttribute('data-guide-dimension',title);tag.setAttribute('data-guide-length',meters);
+ }
+}
+function drawReferenceMarker(host,[x,y],color,id){
+ const group=node('g',id?{'data-id':id,'data-reference-marker':id}:{'pointer-events':'none'},host);
+ node('circle',{cx:x,cy:y,screen:{r:6},fill:'#fff','fill-opacity':.85,stroke:color,'stroke-width':1.6,'vector-effect':'non-scaling-stroke'},group);
+ for(const [dx,dy] of [[9,0],[0,9]])node('line',{screen:{x1:[x,-dx],x2:[x,dx],y1:[y,-dy],y2:[y,dy]},stroke:color,'stroke-width':1.4,'vector-effect':'non-scaling-stroke'},group);
+}
+function renderReferenceFeedback(host){
+ if(!referenceFeedback)return;
+ const color='#79508e',group=node('g',{'data-reference-feedback':'','pointer-events':'none'},host);
+ for(const [point,aligned] of referenceFeedback.guides){
+  const elbow=point[0]===aligned[0]?[point[0],aligned[1]]:[aligned[0],point[1]];
+  node('path',{d:pathData([point,elbow]),fill:'none',stroke:color,'stroke-width':1.4,'stroke-dasharray':'5 3','vector-effect':'non-scaling-stroke'},group);
+ }
+ const [x,y]=referenceFeedback.marker;
+ node('circle',{cx:x,cy:y,screen:{r:8},fill:'none',stroke:color,'stroke-width':1.6,'vector-effect':'non-scaling-stroke'},group);
+}
+function shapeDrawing(){return drawingShape!=='free'&&['road','zone','district','building','interchange'].includes(tool);}
+function renderShapeDraft(group){
+ const definition=EDITOR_SHAPES[drawingShape],controls=draft.length<definition.steps.length&&hover?[...draft,hover]:draft;
+ const geometry=editorShape(drawingShape,controls,tool!=='road');
+ const color=geometry&&geometry.points.every(inMap)?'#276c5d':'#a96646';
+ if(geometry){
+  node('path',{d:pathData(geometry.points,tool!=='road'),fill:tool==='road'?'none':color,'fill-opacity':.18,stroke:color,'stroke-width':2,'vector-effect':'non-scaling-stroke','pointer-events':'none'},group);
+  drawGeometryGuides(geometry,group);
+ }else if(controls.length>1)node('path',{d:pathData(controls),fill:'none',stroke:color,'stroke-dasharray':'5 4','vector-effect':'non-scaling-stroke','pointer-events':'none'},group);
+ for(const p of draft)node('circle',{cx:p[0],cy:p[1],screen:{r:4},fill:'#fff',stroke:color,'stroke-width':1.5,'vector-effect':'non-scaling-stroke','pointer-events':'none'},group);
+ $('drawingActions').hidden=false;$('cancelBtn').hidden=false;
+ $('finishBtn').disabled=draft.length<definition.steps.length;
+}
+function renderDraft(){if(tool==='asset-place'){renderAssetPreview();return;}
+ const group=$('draftShapes');group.replaceChildren();
+ if(drag?.kind==='box'){renderSelectionBox(group,drag.start,drag.end);return;}
+ if(!drag)renderReferenceFeedback(group);
+ if(tool==='reference'){
+  $('drawingActions').hidden=false;$('cancelBtn').hidden=false;$('finishBtn').disabled=true;
+  if(hover)drawReferenceMarker(group,hover,defaultLayerColor('reference:point'));
+  return;
+ }
+ if(shapeDrawing()){renderShapeDraft(group);return;}
+ $('drawingActions').hidden=draft.length===0;$('finishBtn').disabled=draft.length<(tool==='building'&&buildingGeometry==='point'?1:['zone','district','building','interchange'].includes(tool)?3:2);const points=[...draft];if(hover&&draft.length)points.push(hover);if(!points.length)return;const color=tool==='road'?roadInfo(roadType).color:tool==='zone'?zoneInfo(zoneType)[2]:tool==='district'?'#598c8c':'#315e50';
  if(points.length>1)node('path',{d:pathData(points,['zone','district','building','interchange'].includes(tool)&&points.length>2),fill:['zone','district','building','interchange'].includes(tool)?color:'none','fill-opacity':.18,stroke:color,'stroke-width':2,'vector-effect':'non-scaling-stroke','stroke-dasharray':'6 5','pointer-events':'none'},group);
  for(const p of draft)node('circle',{cx:p[0],cy:p[1],screen:{r:4},fill:'#fff',stroke:color,'stroke-width':2,'vector-effect':'non-scaling-stroke','pointer-events':'none'},group);
  if(snapPoint)node('circle',{cx:snapPoint[0],cy:snapPoint[1],screen:{r:8},fill:'none',stroke:'#258568','stroke-width':1.5,'vector-effect':'non-scaling-stroke','pointer-events':'none'},group);
  if(points.length>1){const p=points.at(-1),value=['zone','district','building','interchange'].includes(tool)&&points.length>2?fmtArea(area(points)):fmt(length(points));label(value,p,color,group,12,-15)}
  $('finishBtn').disabled=draft.length<(tool==='building'&&buildingGeometry==='point'?1:['zone','district','building','interchange'].includes(tool)?3:2);
 }
-function updateStatus(){if(tool==='select'&&getSelected()?.assetPlacement){$('toolStatus').textContent='拖动建筑整体移动；右侧可调整位置和旋转角度';$('toolStatus').title=$('toolStatus').textContent;return;}if(tool==='asset-place'){updateAssetStatus();return;}const names={select:'双击选中对象的边线添加节点；Alt＋单击可选被覆盖的片区',pan:'拖动画布平移；滚轮缩放',measure:'逐点测量 · Enter 完成 · Esc 清除',road:`绘制${roadInfo(roadType).name} · 单击加点 · 可吸附同层道路 · Enter 完成`,zone:`绘制${zoneInfo(zoneType)[1]} · 至少 3 点 · Enter 闭合`,district:'绘制大片区边界 · 至少3点 · Enter闭合 · 不移动下属区块',note:'在地图上单击添加标注'};$('toolStatus').textContent=names[tool];$('toolStatus').title=names[tool]||'';}
+function updateStatus(){
+ if(tool==='asset-place'){updateAssetStatus();return;}
+ const current=getSelected();
+ const names={select:'单击查看对象，Shift＋单击多选，B 框选',box:'完整框住当前图层的对象，按住 Shift 追加',pan:'拖动画布平移，滚轮缩放',measure:'逐点测量 · Enter 完成 · Esc 清除',road:`绘制${roadInfo(roadType).name} · 单击加点 · Enter 完成`,zone:`绘制${zoneInfo(zoneType)[1]} · 至少 3 点 · Enter 闭合`,district:'绘制片区边界 · 至少 3 点 · Enter 闭合',building:'绘制建筑 · 单击加点 · Enter 完成',interchange:'绘制立交预留范围 · Enter 完成',reference:'单击放置参考点，选中后可输入精确坐标',note:'在地图上单击添加标注'};
+ let status=names[tool]||'';
+ if(tool==='select'&&current){
+  if(selectedGroup?.has(selected))status=`已选 ${getSelectedFeatures().length} 个对象 · 拖动移动 · Delete 删除`;
+  else status=editBlockReason(current)||(current.shape?'拖动控制点调整图形；拖动边缘移动':current.assetPlacement?'拖动建筑整体移动；右栏可调整位置和角度':'双击边线加节点；Alt＋单击选择被覆盖的片区');
+ }
+ if(shapeDrawing()){
+  const {name,steps}=EDITOR_SHAPES[drawingShape];
+  status=steps[draft.length]?`${name} · 单击设置${steps[draft.length]} · Esc 取消`:`${name} · Enter 完成 · Backspace 返回上一步`;
+ }
+ $('toolStatus').textContent=status;$('toolStatus').title=status;
+}
 function addFeature(f,features=[...project.features,f]){
  checkpoint();
- project.settings.editor.origins.planning=true;
+ if(f.kind!=='reference')project.settings.editor.origins.planning=true;
  project.features=features;
- selected=f.id;
+ selected=f.id;selectedGroup=null;
  setTool('select',{redraw:false});
  render();renderProperties();persist();
 }
@@ -462,21 +572,21 @@ function draftRoadFeatures(road){
   const hit=draftRoadConnections.get(point);
   if(!hit)continue;
   const target=project.features.find(f=>f.id===hit.feature.id);
-  if(target!==hit.feature||locked(target)||!featureVisible(target))continue;
+  if(target!==hit.feature||!canEditFeature(target))continue;
   if(!byRoad.has(target.id))byRoad.set(target.id,[]);
   byRoad.get(target.id).push(hit);
  }
  return [...project.features.map(f=>byRoad.has(f.id)?insertGeometryNodes(f,byRoad.get(f.id)):f),road];
 }
 function selectFeature(feature,nodeIndex=null){
+ selectFeatures(feature?[feature]:[],nodeIndex);
+}
+function selectFeatures(features,nodeIndex=null){
  assetPanelMode='properties';
- if(feature){
-  const key=layerKey(feature);
-  if(key!==activeLayer.key)listQuery='';
-  activeLayer={key,source:featureSource(project,feature)};
- }
+ const feature=features.at(-1);
+ selectedGroup=features.length>1?new Set(features.map(f=>f.id)):null;
  selected=feature?.id??null;
- selectedNode=nodeIndex;
+ selectedNode=selectedGroup?null:nodeIndex;
  updateStatus();
  if(project.proposal&&project.settings.notesVisible)render();
  else renderSelection();
@@ -488,6 +598,7 @@ function selectFeature(feature,nodeIndex=null){
  }
 }
 function commitGeometryChange(feature,next){
+ if(!canEditFeature(feature)){toast(editBlockReason(feature));return false;}
  const index=project.features.indexOf(feature);
  const snapshot=featureHistorySnapshot(project,feature.id);
  project.features[index]=next;
@@ -497,6 +608,9 @@ function commitGeometryChange(feature,next){
  return true;
 }
 function commitFeatureEdit(feature,next){
+ const reason=editBlockReason(feature);
+ if(reason)throw Error(reason);
+ if(layerKey(next)!==layerKey(feature)&&lockedInEditor(project,next))throw Error('目标图层已锁定');
  const index=project.features.indexOf(feature);
  const features=project.features.slice();
  features[index]=next;
@@ -506,37 +620,44 @@ function commitFeatureEdit(feature,next){
  return validated;
 }
 function deleteSelected(){
- const f=getSelected();
+ const features=getSelectedFeatures(),f=features[0];
  if(!f)return;
- if(locked(f)){toast('图层已锁定');return;}
- if(selectedNode!==null&&f.kind!=='note'){
+ if(features.length===1&&selectedNode!==null&&f.kind!=='note'){
+  if(!canEditFeature(f)){toast(editBlockReason(f));return;}
   const {partIndex,index}=selectedNode,parts=geometryParts(f);
   const min=partIndex||isPolygonFeature(f)?3:f.geometryType==='point'?1:2;
   if(parts[partIndex].length<=min){toast(`这一段至少需要 ${min} 个节点`);return;}
   parts[partIndex]=parts[partIndex].filter((_,i)=>i!==index);
   const next={...f,points:parts[0]};
+  delete next.shape;
   if(f.additionalParts)next.additionalParts=parts.slice(1);
   if(f.outlineParts)next.outlineDetached=true;
   if(!commitGeometryChange(f,next))return;
   selectedNode=null;
- }else{
-  if(f.kind==='interchange'&&project.features.some(x=>x.interchangeId===f.id)){
-   toast('请先删除或解除范围内细化对象的关联');return;
-  }
-  if(f.kind==='district')checkpoint();
-  else checkpoint(featureHistorySnapshot(project,f.id));
-  if(scopeId===selected)scopeId='';
-  project.features=project.features.filter(x=>x.id!==selected);
-  if(f.kind==='district')for(const child of project.features){
-   if(child.districtId===f.id)delete child.districtId;
-   if(child.parentId===f.id)delete child.parentId;
-  }
-  selected=null;selectedNode=null;
- }
+ }else if(!deleteSelectedObjects(features))return;
  changed();
 }
+function deleteSelectedObjects(features){
+ const editable=features.filter(canEditFeature);
+ if(!editable.length){toast(editBlockReason(features[0]));return false;}
+ const ids=new Set(editable.map(f=>f.id));
+ const references=project.features.filter(f=>!ids.has(f.id)&&(ids.has(f.parentId)||ids.has(f.districtId)||ids.has(f.interchangeId)));
+ if(references.some(f=>ids.has(f.interchangeId)||!canEditFeature(f))){
+  toast('请先到关联对象所在图层解除归属或立交范围');return false;
+ }
+ if(editable.length===1&&!references.length)checkpoint(featureHistorySnapshot(project,editable[0].id));
+ else checkpoint();
+ project.features=project.features.filter(f=>!ids.has(f.id));
+ for(const f of references){
+  if(ids.has(f.parentId))delete f.parentId;
+  if(ids.has(f.districtId))delete f.districtId;
+ }
+ if(ids.has(scopeId))scopeId='';
+ selected=null;selectedNode=null;selectedGroup=null;
+ return true;
+}
 function canInsertNode(feature){
- return feature&&feature.kind!=='note'&&feature.geometryType!=='point'&&!feature.assetPlacement&&!locked(feature);
+ return !selectedGroup?.has(selected)&&feature?.kind!=='note'&&feature?.geometryType!=='point'&&!feature?.assetPlacement&&canEditFeature(feature);
 }
 function edgeHitRadius(feature){
  const minimum=9/view.scale;
@@ -548,6 +669,70 @@ function edgeHitRadius(feature){
 function nearSelectedEdge(feature,point){
  return canInsertNode(feature)&&featureVisible(feature)&&nearestGeometryEdge(feature,point).distance<=edgeHitRadius(feature);
 }
+function editBoxBounds(start,end){return [Math.min(start[0],end[0]),Math.min(start[1],end[1]),Math.max(start[0],end[0]),Math.max(start[1],end[1])];}
+function renderSelectionBox(host,start,end){
+ const [left,top,right,bottom]=editBoxBounds(start,end);
+ node('rect',{x:left,y:top,width:right-left,height:bottom-top,fill:'#72aa9d','fill-opacity':.18,stroke:'#297363','stroke-width':1.5,'stroke-dasharray':'5 3','vector-effect':'non-scaling-stroke','pointer-events':'none','data-selection-box':''},host);
+}
+function finishSelectionBox(box){
+ const bounds=editBoxBounds(box.start,box.end);
+ const candidates=featureViewportIndex?featureViewportIndex.query(bounds):project.features;
+ const hits=candidates.filter(f=>{
+  if(!inEditLayer(f)||!featureVisible(f))return false;
+  const parts=geometryParts(f),network=['road','route'].includes(f.kind),editor=project.settings.editor;
+  const padding=network&&!isPolygonFeature(f)?networkDisplay(f,editor,view.scale).width/2:0;
+  if(f.outlineParts&&!f.outlineDetached&&editor.networkOutlines&&view.scale/fitScale>1.5)parts.push(...f.outlineParts);
+  if(f.assetPlacement?.showLot)parts.push(buildingAssetLot(f));
+  return geometryInsideEditorBox(parts,bounds,padding);
+ });
+ const combined=new Map((box.additive?getSelectedFeatures().filter(inEditLayer):[]).map(f=>[f.id,f]));
+ for(const feature of hits)combined.set(feature.id,feature);
+ setTool('select',{redraw:false});renderDraft();selectFeatures([...combined.values()]);
+}
+function toggleSelectedObject(feature){
+ if(!inEditLayer(feature)){selectFeature(feature);return;}
+ const group=getSelectedFeatures().filter(inEditLayer);
+ selectFeatures(group.some(f=>f.id===feature.id)?group.filter(f=>f.id!==feature.id):[...group,feature]);
+}
+function startFeatureDrag(feature,handle,control,point){
+ const group=getSelectedFeatures().filter(canEditFeature);
+ const entries=[];
+ if(group.length>1){
+  const ids=new Set(group.map(f=>f.id));
+  for(const [index,f] of project.features.entries())if(ids.has(f.id))entries.push({index,original:structuredClone(f)});
+ }else entries.push({index:project.features.indexOf(feature),original:structuredClone(feature)});
+ const radial=feature.shape&&!['line','rectangle','square'].includes(feature.shape.type);
+ const kind=entries.length>1?'group':handle?'node':control!==null&&!(control===0&&radial)?'shape':'feature';
+ drag={kind,id:feature.id,node:handle,control,start:point,entries,moved:false};
+}
+function dragBounds(entries){
+ let xmin=Infinity,ymin=Infinity,xmax=-Infinity,ymax=-Infinity;
+ for(const {original:f} of entries){
+  const parts=[...geometryParts(f),...(f.outlineParts||[]),buildingAssetLot(f),f.shape?.controls||[],f.poi?[f.poi]:[]];
+  for(const points of parts)for(const [x,y] of points){xmin=Math.min(xmin,x);ymin=Math.min(ymin,y);xmax=Math.max(xmax,x);ymax=Math.max(ymax,y);}
+ }
+ return [xmin,ymin,xmax,ymax];
+}
+function moveDraggedGeometry(f,original,dx,dy){
+ const translate=([x,y])=>[x+dx,y+dy];
+ f.points=original.points.map(translate);
+ for(const key of ['additionalParts','outlineParts'])if(original[key])f[key]=original[key].map(part=>part.map(translate));
+ if(original.poi)f.poi=translate(original.poi);
+ if(original.shape)f.shape={...original.shape,controls:original.shape.controls.map(translate)};
+}
+function resizeDraggedShape(f,original,index,point){
+ const controls=original.shape.controls.slice(),[origin,end,side]=controls;
+ controls[index]=point;
+ if(index===1&&side){
+  const ax=end[0]-origin[0],ay=end[1]-origin[1],bx=point[0]-origin[0],by=point[1]-origin[1];
+  const offset=(ax*(side[1]-origin[1])-ay*(side[0]-origin[0]))/Math.hypot(ax,ay),radius=Math.hypot(bx,by);
+  if(radius<1)return;
+  controls[2]=[origin[0]-by*offset/radius,origin[1]+bx*offset/radius];
+ }
+ const geometry=editorShape(original.shape.type,controls,isPolygonFeature(f));
+ if(!geometry||!geometry.points.every(inMap)||!geometry.controls.every(inMap))return;
+ f.points=geometry.points;f.shape={type:original.shape.type,controls:geometry.controls};
+}
 svg.addEventListener('pointerdown',e=>{
  if(e.button!==0&&e.button!==1)return;
  refreshNavigationDetails();
@@ -557,51 +742,101 @@ svg.addEventListener('pointerdown',e=>{
   viewport.style.cursor='grabbing';svg.setPointerCapture(e.pointerId);return;
  }
  if(masterPlanSession?.picking){e.preventDefault();return;}
+ if(tool==='box'){
+  e.preventDefault();drag={kind:'box',start:point,end:point,additive:e.shiftKey,pointerId:e.pointerId};
+  svg.setPointerCapture(e.pointerId);renderDraft();return;
+ }
  if(tool!=='select')return;
  const target=e.target.closest('[data-id]');
  const picked=target?project.features.find(f=>f.id===target.dataset.id):null;
  const current=getSelected();
- const handle=target?.dataset.node;
+ const handle=target?.dataset.node,control=target?.dataset.shapeControl;
  let feature=picked;
- if(handle===undefined&&(e.altKey||!picked||picked!==current)){
-  if(!e.altKey&&nearSelectedEdge(current,point))feature=current;
+ if(handle===undefined&&control===undefined){
+  if(!e.altKey&&!picked&&nearSelectedEdge(current,point))feature=current;
   else if(e.altKey||!picked){
    const districts=project.features.filter(f=>f.kind==='district'&&featureVisible(f));
    feature=pickDistrict(districts,point,8/view.scale)||picked;
   }
  }
- if(!feature){selectFeature(null);return;}
- const selectedHandle=handle===undefined?null:{partIndex:Number(target.dataset.part),index:Number(handle)};
+ if(!feature){if(!e.shiftKey)selectFeature(null);return;}
+ if(e.shiftKey){toggleSelectedObject(feature);return;}
+ const selectedHandle=handle===undefined||!canEditFeature(feature)?null:{partIndex:Number(target.dataset.part),index:Number(handle)};
+ const selectedControl=control===undefined||!canEditFeature(feature)?null:Number(control);
+ if(selectedGroup?.has(selected)&&selectedGroup.has(feature.id)&&selectedHandle===null&&selectedControl===null){
+  if(canEditFeature(feature)&&e.detail<=1)startFeatureDrag(feature,null,null,point);
+  return;
+ }
  if(feature!==current||selectedHandle?.partIndex!==selectedNode?.partIndex||selectedHandle?.index!==selectedNode?.index)
   selectFeature(feature,selectedHandle);
- if(locked(feature)||e.detail>1)return;
- drag={kind:selectedHandle?'node':'feature',id:feature.id,node:selectedHandle,start:point,
-  original:structuredClone(feature.points),
-  extraOriginal:structuredClone({additionalParts:feature.additionalParts,outlineParts:feature.outlineParts,poi:feature.poi}),
-  originalAssetLot:buildingAssetLot(feature),moved:false};
+ if(canEditFeature(feature)&&e.detail<=1)startFeatureDrag(feature,selectedHandle,selectedControl,point);
 });
-svg.addEventListener('pointermove',e=>{const p=screenPoint(e);$('coordinates').textContent=inMap(p)?`X ${Math.round(p[0])} m · Y ${Math.round(p[1])} m`:'地图范围外';if(drag){if(drag.kind==='pan'){view.cx=drag.cx-(e.clientX-drag.x)/view.scale;view.cy=drag.cy-(e.clientY-drag.y)/view.scale;scheduleMapNavigation();return}const f=project.features.find(f=>f.id===drag.id);if(!f)return;if(!drag.moved&&distance(p,drag.start)*view.scale<3)return;if(!drag.moved){drag.snapshot=featureHistorySnapshot(project,f.id);invalidateEditGeometry();drag.moved=true;if(svg.hasPointerCapture(e.pointerId)===false)svg.setPointerCapture(e.pointerId);}suppressClick=true;if(drag.kind==='node'){const {partIndex,index}=drag.node;geometryParts(f)[partIndex][index]=constrained(e);if(f.outlineParts)f.outlineDetached=true;}else{const dx=p[0]-drag.start[0],dy=p[1]-drag.start[1],allPoints=[...(drag.originalAssetLot||[]),...drag.original,...(drag.extraOriginal.additionalParts||[]).flat(),...(drag.extraOriginal.outlineParts||[]).flat(),...(drag.extraOriginal.poi?[drag.extraOriginal.poi]:[])],xs=allPoints.map(p=>p[0]),ys=allPoints.map(p=>p[1]),cx=Math.max(-Math.min(...xs),Math.min(SIZE-Math.max(...xs),dx)),cy=Math.max(-Math.min(...ys),Math.min(SIZE-Math.max(...ys),dy));f.points=drag.original.map(q=>[q[0]+cx,q[1]+cy]);for(const key of ['additionalParts','outlineParts'])if(drag.extraOriginal[key])f[key]=drag.extraOriginal[key].map(ps=>ps.map(q=>[q[0]+cx,q[1]+cy]));if(drag.extraOriginal.poi)f.poi=[drag.extraOriginal.poi[0]+cx,drag.extraOriginal.poi[1]+cy]}editPreviewScheduler.schedule();return}if(['road','zone','district','building','interchange','measure'].includes(tool)){hover=constrained(e);renderDraft()}});
+svg.addEventListener('pointermove',e=>{
+ const point=screenPoint(e);
+ $('coordinates').textContent=inMap(point)?`X ${Math.round(point[0])} m · Y ${Math.round(point[1])} m`:'地图范围外';
+ if(!drag){
+  if(['road','zone','district','building','interchange','measure','reference'].includes(tool)){hover=constrained(e);renderDraft();}
+  return;
+ }
+ if(drag.kind==='box'){drag.end=point;renderDraft();return;}
+ if(drag.kind==='pan'){view.cx=drag.cx-(e.clientX-drag.x)/view.scale;view.cy=drag.cy-(e.clientY-drag.y)/view.scale;scheduleMapNavigation();return;}
+ if(!drag.moved){
+  if(distance(point,drag.start)*view.scale<3)return;
+  drag.snapshot=drag.entries.length>1?lightHistorySnapshot(project):featureHistorySnapshot(project,drag.id);
+  drag.bounds=dragBounds(drag.entries);invalidateEditGeometry();drag.moved=true;
+  if(!svg.hasPointerCapture(e.pointerId))svg.setPointerCapture(e.pointerId);
+ }
+ suppressClick=true;
+ const [xmin,ymin,xmax,ymax]=drag.bounds;
+ let dx=point[0]-drag.start[0],dy=point[1]-drag.start[1];
+ const original=drag.entries[0].original;
+ const anchor=drag.kind==='feature'&&(original.poi||(drag.control===0?original.shape?.controls[0]:original.geometryType==='point'?original.points[0]:null));
+ if(anchor){
+  const target=placeAgainstReference([anchor[0]+dx,anchor[1]+dy],e);
+  if(target){dx=target[0]-anchor[0];dy=target[1]-anchor[1];}
+ }
+ dx=Math.max(-xmin,Math.min(SIZE-xmax,dx));dy=Math.max(-ymin,Math.min(SIZE-ymax,dy));
+ for(const {index,original} of drag.entries){
+  const f=project.features[index];
+  if(drag.kind==='node'){
+   geometryParts(f)[drag.node.partIndex][drag.node.index]=constrained(e);
+   if(f.outlineParts)f.outlineDetached=true;
+  }else if(drag.kind==='shape')resizeDraggedShape(f,original,drag.control,constrained(e));
+  else moveDraggedGeometry(f,original,dx,dy);
+ }
+ editPreviewScheduler.schedule();
+});
 function endDrag(e){
  if(!drag)return;
+ if(drag.kind==='box'){
+  const box=drag;drag=null;
+  if(svg.hasPointerCapture(e.pointerId))svg.releasePointerCapture(e.pointerId);
+  if(e.type==='pointerup'&&distance(box.start,box.end)*view.scale>=3)finishSelectionBox(box);
+  else renderDraft();
+  return;
+ }
  editPreviewScheduler.flush();
  const pan=drag.kind==='pan',moved=drag.moved;
  let committed=false;
  if(moved){
-  const f=project.features.find(feature=>feature.id===drag.id);
   try{
    if(e.type==='pointercancel')throw Error('拖动已取消');
-   if(f.kind==='building'&&f.geometryType==='point')f.poi=[...f.points[0]];
+   for(const {index} of drag.entries){
+    const f=project.features[index];
+    if(!canEditFeature(f))throw Error(editBlockReason(f));
+    if(f.kind==='building'&&f.geometryType==='point')f.poi=[...f.points[0]];
+    if(f.assetPlacement&&!buildingAssetFits(f,SIZE))throw Error('建筑占地超出地图边界');
+   }
    validateInterchangeBounds(project);
-   if(f.assetPlacement&&!buildingAssetFits(f,SIZE))throw Error('建筑占地超出地图边界');
    checkpoint(drag.snapshot);
    committed=true;
   }catch(error){
-   project.features[drag.snapshot.index]=drag.snapshot.feature;
+   for(const {index,original} of drag.entries)project.features[index]=original;
    invalidateEditGeometry();
    if(e.type!=='pointercancel')toast(error.message);
   }
  }
- clearDragPreview();drag=null;
+ clearDragPreview();drag=null;referenceFeedback=null;
  if(svg.hasPointerCapture(e.pointerId))svg.releasePointerCapture(e.pointerId);
  viewport.style.cursor=tool==='pan'?'grab':tool==='select'?'default':'crosshair';
  if(moved){render();renderProperties();}
@@ -611,8 +846,29 @@ function endDrag(e){
 }
 svg.addEventListener('pointerup',endDrag);
 svg.addEventListener('pointercancel',endDrag);
-svg.addEventListener('pointerleave',()=>{if(drag&&drag.kind!=='pan'&&!drag.moved)drag=null;});
-svg.addEventListener('click',e=>{if(suppressClick||space||e.detail>1)return;if(!inMap(screenPoint(e)))return;if(masterPlanSession?.picking){pickMasterPlanPoint(screenPoint(e));return;}if(['road','zone','district','building','interchange','measure'].includes(tool)){const p=constrained(e);if(['zone','district','building','interchange'].includes(tool)&&draft.length>=3&&distance(p,draft[0])<8/view.scale){finish();return}if(draft.length&&distance(p,draft.at(-1))<1/view.scale)return;if(roadSnap)draftRoadConnections.set(p,roadSnap);draft.push(p);hover=null;$('cancelBtn').hidden=false;renderDraft();return}if(tool==='note')addFeature({id:crypto.randomUUID(),kind:'note',name:'新标注',notes:'',points:[screenPoint(e)]})});
+svg.addEventListener('pointerleave',()=>{if(drag&&!['pan','box'].includes(drag.kind)&&!drag.moved)drag=null;});
+svg.addEventListener('click',e=>{
+ if(suppressClick||space||e.detail>1)return;
+ const point=screenPoint(e);if(!inMap(point))return;
+ if(masterPlanSession?.picking){pickMasterPlanPoint(point);return;}
+ if(tool==='reference'){draft=[constrained(e)];finish();return;}
+ if(['road','zone','district','building','interchange','measure'].includes(tool)){
+  const p=constrained(e);
+  if(shapeDrawing()){
+   const count=EDITOR_SHAPES[drawingShape].steps.length;
+   if(draft.length===count)draft.pop();
+   if(roadSnap)draftRoadConnections.set(p,roadSnap);
+   draft.push(p);hover=null;updateStatus();renderDraft();
+   if(draft.length===count)finish();
+   return;
+  }
+  if(['zone','district','building','interchange'].includes(tool)&&draft.length>=3&&distance(p,draft[0])<8/view.scale){finish();return;}
+  if(draft.length&&distance(p,draft.at(-1))<1/view.scale)return;
+  if(roadSnap)draftRoadConnections.set(p,roadSnap);
+  draft.push(p);hover=null;$('cancelBtn').hidden=false;renderDraft();return;
+ }
+ if(tool==='note'&&activeLayer.key==='note')addFeature({id:crypto.randomUUID(),kind:'note',name:'新标注',notes:'',points:[point]});
+});
 svg.addEventListener('dblclick',e=>{
  e.preventDefault();
  if(suppressClick||space||masterPlanSession?.picking)return;
@@ -629,9 +885,38 @@ svg.addEventListener('dblclick',e=>{
  }catch(error){toast(error.message);}
 });
 viewport.addEventListener('wheel',e=>{e.preventDefault();if(!drag)zoom(wheelZoomFactor(e.deltaY,e.deltaMode,viewport.clientHeight),screenPoint(e));},{passive:false});
-window.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.querySelector('dialog[open]'))return;const key=e.key.toLowerCase();if((e.ctrlKey||e.metaKey)&&key==='z'){e.preventDefault();undo(e.shiftKey);return}if((e.ctrlKey||e.metaKey)&&key==='y'){e.preventDefault();undo(true);return}if(e.code==='Space'){e.preventDefault();space=true;viewport.style.cursor='grab'}if(key==='escape'){draft=[];hover=null;if(tool==='asset-place')stopAssetPlacement();else setTool('select')}if(key==='enter'){e.preventDefault();finish()}if(key==='delete'||key==='backspace'){e.preventDefault();if(draft.length){draft.pop();renderDraft()}else deleteSelected()}if(!e.ctrlKey&&!e.metaKey){if(key==='v')setTool('select');if(key==='h')setTool('pan');if(key==='m')setTool('measure');if(key==='z')drawOnLayer('zone');if(key==='d')drawOnLayer('district:large')}});
+function beginBoxSelection(){
+ const key=activeLayer.key;
+ if(!project.settings.editor.layers[key]||GROUPS.some(([group])=>group===key)||key.startsWith('terrain:')){toast('请选择要框选的具体图层');return;}
+ setTool('box');
+}
+window.addEventListener('keydown',e=>{
+ if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.querySelector('dialog[open]'))return;
+ const key=e.key.toLowerCase();
+ if(e.ctrlKey||e.metaKey){
+  if(key==='z'||key==='y'){e.preventDefault();undo(key==='y'||e.shiftKey);}
+  return;
+ }
+ if(e.code==='Space'){e.preventDefault();space=true;viewport.style.cursor='grab';}
+ if(key==='escape'){
+  if(tool==='asset-place')stopAssetPlacement();
+  else if(tool==='select')selectFeature(null);
+  else setTool('select');
+ }
+ if(key==='enter'){e.preventDefault();finish();}
+ if(key==='delete'||key==='backspace'){
+  e.preventDefault();
+  if(draft.length){draft.pop();updateStatus();renderDraft();}else deleteSelected();
+ }
+ if(key==='v')setTool('select');
+ if(key==='b')beginBoxSelection();
+ if(key==='h')setTool('pan');
+ if(key==='m')setTool('measure');
+ if(key==='z')drawOnLayer('zone');
+ if(key==='d')drawOnLayer('district:large');
+});
 window.addEventListener('keyup',e=>{if(e.code==='Space'){space=false;viewport.style.cursor=tool==='pan'?'grab':tool==='select'?'default':'crosshair'}});window.addEventListener('blur',()=>space=false);
-$('selectTool').onclick=()=>setTool('select');$('panTool').onclick=()=>setTool('pan');$('measureTool').onclick=()=>setTool('measure');$('finishBtn').onclick=finish;$('cancelBtn').onclick=()=>setTool('select');$('undoBtn').onclick=()=>undo();$('redoBtn').onclick=()=>undo(true);$('zoomIn').onclick=()=>zoom(1.4);$('zoomOut').onclick=()=>zoom(1/1.4);$('fitBtn').onclick=fit;
+$('selectTool').onclick=()=>setTool('select');$('boxSelectTool').onclick=beginBoxSelection;$('panTool').onclick=()=>setTool('pan');$('measureTool').onclick=()=>setTool('measure');$('finishBtn').onclick=finish;$('cancelBtn').onclick=()=>setTool('select');$('undoBtn').onclick=()=>undo();$('redoBtn').onclick=()=>undo(true);$('zoomIn').onclick=()=>zoom(1.4);$('zoomOut').onclick=()=>zoom(1/1.4);$('fitBtn').onclick=fit;
 let mapExpanded=false,nativeMapFullscreen=false;
 const mapShell=viewport.closest('.map-shell');
 function setMapExpanded(on){mapExpanded=on;mapShell.classList.toggle('map-expanded',on);document.body.classList.toggle('map-fullscreen',on);$('fullscreenBtn').setAttribute('aria-pressed',String(on));$('fullscreenBtn').setAttribute('aria-label',on?'退出全屏':'全屏地图');$('fullscreenBtn').title=on?'退出全屏 (Esc)':'全屏地图';}
@@ -646,8 +931,22 @@ $('zoneOpacity').oninput=event=>{
 };
 for(const key of ['grid','snap','notesVisible']){
  const control=$(key==='notesVisible'?key:key+'Toggle');
- control.onchange=()=>{project.settings[key]=control.checked;render();renderProperties();persist();};
+ control.onchange=()=>{
+  project.settings[key]=control.checked;
+  if(key==='snap'){referenceFeedback=null;snapPoint=null;syncSnapTools();renderDraft();}
+  else{render();renderProperties();}
+  persist();
+ };
 }
+$('snapTool').onclick=()=>$('snapToggle').click();
+$('alignTool').onclick=()=>{
+ project.settings.editor.referenceAlign=!project.settings.editor.referenceAlign;
+ referenceFeedback=null;syncSnapTools();renderDraft();persist();
+};
+$('geometryGuidesTool').onclick=()=>{
+ project.settings.editor.geometryGuides=!project.settings.editor.geometryGuides;
+ syncSnapTools();renderDraft();renderSelection();persist();
+};
 window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();if(document.querySelector('dialog[open]'))return;document.activeElement?.blur();saveProject(e.shiftKey);}},true);
 window.addEventListener('pagehide',saveBrowser);
 window.addEventListener('beforeunload',e=>{if(!window.mapDesktop?.tauri&&(projectDirty||projectSaving||planningWorkspace?.dirty)){e.preventDefault();e.returnValue='';}});
@@ -663,20 +962,56 @@ function featureVisible(f){
  return visibleInEditor(project,f);
 }
 function locked(f){return !!(basePlanningState&&planningWorkspace.referenceIds.has(f?.id))||lockedInEditor(project,f)}
+function inEditLayer(f){
+ return !!f&&layerKey(f)===activeLayer.key&&(!activeMunicipalClass||municipalClass(f)===activeMunicipalClass);
+}
+function editBlockReason(f){
+ if(!inEditLayer(f))return '请先选定对象所在图层';
+ if(locked(f))return '图层或对象来源已锁定';
+ if(!featureVisible(f))return '请先显示此对象';
+ return '';
+}
+function canEditFeature(f){return !editBlockReason(f);}
+function syncCurrentEditLayer(){
+ const layer=project.settings.editor.layers[activeLayer.key];
+ const name=activeMunicipalClass?MUNICIPAL_TYPES.find(([id])=>id===activeMunicipalClass)?.[1]:layerName(activeLayer.key);
+ const text=layer&&!GROUPS.some(([id])=>id===activeLayer.key)?`当前图层 · ${name}${layer.locked?'（锁定）':''}`:'请选择要编辑的具体图层';
+ $('currentEditLayer').textContent=text;$('currentEditLayer').title=text;
+}
+function syncSnapTools(){
+ const settings=project.settings;
+ for(const [id,enabled] of [['snapTool',settings.snap],['alignTool',settings.editor.referenceAlign],['geometryGuidesTool',settings.editor.geometryGuides]]){
+  $(id).classList.toggle('active',enabled);$(id).setAttribute('aria-pressed',String(enabled));
+ }
+}
 function polygonFill(f,color){if(!f.fillStyle||f.fillStyle==='solid')return color;const id='fill-'+f.id.replace(/[^a-z0-9-]/gi,'');let p=mapElement(id);if(!p){p=node('pattern',{id,width:60,height:60,patternUnits:'userSpaceOnUse'},mapRoot.querySelector('defs'));}p.replaceChildren();node('rect',{width:60,height:60,fill:color,'fill-opacity':.3},p);if(f.fillStyle==='hatch')node('path',{d:'M0 60L60 0',stroke:color,'stroke-width':12},p);else node('circle',{cx:30,cy:30,r:9,fill:color},p);return `url(#${id})`}
 function layerName(key){
  const groups=Object.fromEntries(GROUPS);if(groups[key])return groups[key];
+ if(key==='reference:point')return '参考点位';
  if(key.startsWith('building:'))return BUILDINGS.find(([id])=>id===key.split(':')[1])?.[1]||'其他建筑';
  return ({'district:large':'大片区','district:small':'小片区','district:tile':'游戏地块','zone':'功能区块','zoning:boundary':'游戏用地区划','road:interchange':'立交预留范围','terrain:landwater':'陆地／水体简图','terrain:elevation':'Elevation 地形','terrain:depth':'Depth 水体','terrain:topographic':'等高线地形图','route:bus':'公交','route:metro':'地铁线路','route:train':'客运铁路线路','route:water':'水上交通','route:air':'航空线路','route:other':'其他交通线路'})[key]||roadInfo(key.split(':')[1]).name;
 }
 function expandLayerGroup(key,open=true){
  expandedGroups.clear();if(open)expandedGroups.add(key);
- for(const section of $('layerTree').querySelectorAll('.layer-section')){const g=section.querySelector('[data-group]').dataset.group,on=expandedGroups.has(g),button=section.querySelector('.group-fold');section.classList.toggle('collapsed',!on);button.textContent=on?'▾':'▸';button.setAttribute('aria-expanded',String(on));button.setAttribute('aria-label',(on?'折叠':'展开')+layerName(g));}
+ for(const section of $('layerTree').querySelectorAll('.layer-section')){
+  const g=section.querySelector('[data-group]').dataset.group,on=expandedGroups.has(g),button=section.querySelector('.group-fold');
+  if(!button)continue;
+  section.classList.toggle('collapsed',!on);button.textContent=on?'▾':'▸';button.setAttribute('aria-expanded',String(on));button.setAttribute('aria-label',(on?'折叠':'展开')+layerName(g));
+ }
 }
 function buildLayers(){
  renderAssetPackages();const host=$('layerTree');const baseControls=$('basemapControls');baseControls.remove();host.replaceChildren();
  for(const [g,name]of GROUPS){
   const section=document.createElement('section');section.className='layer-section'+(expandedGroups.has(g)?'':' collapsed');
+  if(g==='reference'){
+   section.innerHTML='<div class="group-heading"><input type="checkbox" data-group="reference" aria-label="显示参考点位"><button class="group-title" data-category="reference:point">参考点位</button></div>';
+   section.querySelector('[data-group]').onchange=event=>{
+    checkpoint();const editor=project.settings.editor;
+    editor.groups.reference=editor.layers['reference:point'].visible=event.target.checked;changed();
+   };
+   section.querySelector('button').onclick=()=>{expandLayerGroup(g,false);activateLayer('reference:point');};
+   host.appendChild(section);continue;
+  }
   section.innerHTML=`<div class="group-heading"><input type="checkbox" data-group="${g}" aria-label="显示${name}"><button class="group-title" data-category="${g}">${name}</button><button class="group-fold" aria-label="${expandedGroups.has(g)?'折叠':'展开'}${name}" aria-expanded="${expandedGroups.has(g)}" title="展开 / 折叠">${expandedGroups.has(g)?'▾':'▸'}</button></div><div class="group-content"></div>`;
   section.querySelector('[data-group]').onchange=ev=>{checkpoint();project.settings.editor.groups[g]=ev.target.checked;if(g==='building'&&ev.target.checked)project.settings.editor.layers.building.visible=true;changed()};
   section.querySelector('.group-title').onclick=()=>{expandLayerGroup(g);activateLayer(g);};
@@ -694,23 +1029,60 @@ function buildLayers(){
   host.appendChild(section);
  }
 }
-function changed(){if(selected&&!featureVisible(getSelected()))selected=null;syncUI();render();renderProperties();persist()}
+function changed(){
+ if(selectedGroup?.has(selected)){
+  const current=getSelectedFeatures();
+  if(!current.some(f=>f.id===selected))selected=current.at(-1)?.id??null;
+  selectedGroup=current.length>1?new Set(current.map(f=>f.id)):null;
+ }else if(selected&&!featureVisible(getSelected())){selected=null;selectedNode=null;}
+ updateStatus();syncUI();render();renderProperties();persist();
+}
 function activateLayer(key,source='manual',municipal=null){activeMunicipalClass=municipal;assetPanelMode='properties';
- activeLayer={key,source};listQuery='';selected=null;setTool('select');project.settings.editor.groups[groupForLayer(key)]=true;
+ activeLayer={key,source};listQuery='';selected=null;selectedGroup=null;drawingShape='free';setTool('select',{redraw:false});project.settings.editor.groups[groupForLayer(key)]=true;
  const l=project.settings.editor.layers[key];if(l){l.visible=true;l[source]=true;}
  if(key.startsWith('building:')){buildingType=key.split(':')[1];project.settings.editor.layers.building.visible=true;}
  if(key.startsWith('road:')&&key!=='road:interchange')roadType=key.split(':')[1];
  if(key.startsWith('district:'))districtLevel=key.split(':')[1];
+ if(municipal)project.settings.editor.municipalVisibility[municipal]=true;
  syncUI();render();renderProperties();document.querySelector('.right-scroll').scrollTop=0;persist();
 }
 
-function syncUI(){syncOriginControls();const s=project.settings,e=s.editor;for(const [id,key]of [['gridToggle','grid'],['snapToggle','snap'],['notesVisible','notesVisible'],['corridorsToggle','corridors']])$(id).checked=s[key];for(const key of ['zoneOpacity']){$(key).value=s[key];$(key+'Value').textContent=s[key]+'%'}$('baseSelect').innerHTML=[['none','无底图'],...(['qgis','satellite'].filter(k=>openedBaseImages[k]||(typeof BASEMAPS!=='undefined'&&BASEMAPS[k])).map(k=>[k,k==='qgis'?'QGIS 简图':'卫星底图'])),...project.basemaps.map(b=>[b.id,b.name])].map(([id,n])=>`<option value="${escape(id)}">${escape(n)}</option>`).join('');$('baseSelect').value=s.base;document.querySelectorAll('[data-group]').forEach(x=>{const g=x.dataset.group;x.checked=e.groups[g]!==false&&(g!=='building'||e.layers.building.visible!==false)});document.querySelectorAll('[data-layer-key]').forEach(row=>{row.querySelector('[data-layer-visible]').checked=e.layers[row.dataset.layerKey].visible});syncMunicipalControls();document.querySelectorAll('[data-category]').forEach(b=>b.classList.toggle('active',activeLayer.key===b.dataset.category));}
+function syncUI(){syncOriginControls();syncCurrentEditLayer();syncSnapTools();const s=project.settings,e=s.editor;for(const [id,key]of [['gridToggle','grid'],['snapToggle','snap'],['notesVisible','notesVisible'],['corridorsToggle','corridors']])$(id).checked=s[key];for(const key of ['zoneOpacity']){$(key).value=s[key];$(key+'Value').textContent=s[key]+'%'}$('baseSelect').innerHTML=[['none','无底图'],...(['qgis','satellite'].filter(k=>openedBaseImages[k]||(typeof BASEMAPS!=='undefined'&&BASEMAPS[k])).map(k=>[k,k==='qgis'?'QGIS 简图':'卫星底图'])),...project.basemaps.map(b=>[b.id,b.name])].map(([id,n])=>`<option value="${escape(id)}">${escape(n)}</option>`).join('');$('baseSelect').value=s.base;document.querySelectorAll('[data-group]').forEach(x=>{const g=x.dataset.group;x.checked=e.groups[g]!==false&&(g!=='building'||e.layers.building.visible!==false)&&(g!=='reference'||e.layers['reference:point'].visible!==false)});document.querySelectorAll('[data-layer-key]').forEach(row=>{row.querySelector('[data-layer-visible]').checked=e.layers[row.dataset.layerKey].visible});syncMunicipalControls();document.querySelectorAll('[data-category]').forEach(b=>b.classList.toggle('active',activeLayer.key===b.dataset.category));}
 
 function renderDistricts(visible){for(const f of visible.filter(f=>f.kind==='district')){const displayColor=featureDisplayColor(project,f);node('path',{d:featurePath(f,true),fill:polygonFill(f,displayColor),'fill-rule':'evenodd','fill-opacity':f.level==='small'?.09:.025,stroke:displayColor,'stroke-width':1.8,'vector-effect':'non-scaling-stroke','stroke-dasharray':`${f.level==='small'?4:10} 5`,'data-id':f.id},mapElement('districtShapes'));if(labelsVisibleInEditor(project,f)){const text=label(f.name,interiorPoint(f.points),displayColor,mapElement('districtShapes'),f.level==='small'?11:14);if(f.level==='tile'&&f.id!==selected){text.setAttribute('data-min-zoom',3);text.style.display=view.scale/fitScale>3?'':'none';}}}}
-function renderMap({terrain=true}={}){const visible=visibleRenderFeatures();renderBaseLayers(visible);if(terrain)renderTerrain();for(const id of ['buildingShapes','interchangeShapes'])mapElement(id).replaceChildren();for(const f of visible.filter(f=>['building','interchange'].includes(f.kind))){const color=featureDisplayColor(project,f),host=mapElement(f.kind==='building'?'buildingShapes':'interchangeShapes');if(f.assetPlacement){renderPlacedBuildingAsset(f,host,color);continue;}node(f.kind==='building'&&f.geometryType==='point'?'circle':'path',{...(f.kind==='building'&&f.geometryType==='point'?{cx:f.points[0][0],cy:f.points[0][1],screen:{r:6}}:{d:featurePath(f,true)}),fill:polygonFill(f,color),'fill-rule':'evenodd','fill-opacity':f.kind==='interchange'?.12:.55,stroke:color,'stroke-width':1.5,'vector-effect':'non-scaling-stroke','stroke-dasharray':f.kind==='interchange'?'8 4':'none','data-id':f.id},host);if(labelsVisibleInEditor(project,f))label(f.name,interiorPoint(f.points),color,host,11);}
+function renderMunicipalMarker(host,f,id,point,color,outline=false){
+ const style=municipalMarkerStyle(id),stop=id.endsWith('-stops');
+ const size=outline?18:id==='power-grid'?13:15;
+ const [x,y]=point;
+ const glyph=node('svg',{'data-id':f.id,'data-municipal-symbol':id,viewBox:'0 0 20 20',
+  ...(outline?{'data-min-zoom':1.6}:{}),screen:{x:[x,-size/2],y:[y,-size/2],width:size,height:size}},host);
+ node('title',{},glyph).textContent=style.name+' · '+f.name;
+ node('rect',{x:1,y:1,width:18,height:18,rx:stop?7:3.5,fill:color,stroke:'#fcfff7','stroke-width':1.3},glyph);
+ node('path',{d:style.path,transform:'translate(2 2)',fill:'none',stroke:'#fff','stroke-width':1.35,'stroke-linecap':'round','stroke-linejoin':'round','pointer-events':'none'},glyph);
+}
+function renderMap({terrain=true}={}){
+ const visible=visibleRenderFeatures();renderBaseLayers(visible);if(terrain)renderTerrain();
+ for(const id of ['buildingShapes','interchangeShapes'])mapElement(id).replaceChildren();
+ for(const f of visible){
+  if(!['building','interchange'].includes(f.kind))continue;
+  const color=featureDisplayColor(project,f),host=mapElement(f.kind==='building'?'buildingShapes':'interchangeShapes');
+  if(f.assetPlacement){renderPlacedBuildingAsset(f,host,color);continue;}
+  const point=f.kind==='building'&&f.geometryType==='point',municipal=municipalClass(f);
+  const showLabel=labelsVisibleInEditor(project,f);
+  const center=point?f.points[0]:municipal||showLabel?f.poi||interiorPoint(f.points):null;
+  if(point&&municipal)renderMunicipalMarker(host,f,municipal,center,color);
+  else{
+   const geometry=point?{cx:center[0],cy:center[1],screen:{r:6}}:{d:featurePath(f,true)};
+   node(point?'circle':'path',{...geometry,fill:polygonFill(f,color),'fill-rule':'evenodd',
+    'fill-opacity':f.kind==='interchange'?.12:.55,stroke:color,'stroke-width':1.5,'vector-effect':'non-scaling-stroke',
+    'stroke-dasharray':f.kind==='interchange'?'8 4':'none','data-id':f.id},host);
+   if(municipal)renderMunicipalMarker(host,f,municipal,center,color,true);
+  }
+  if(showLabel)label(f.name,center,color,host,11,municipal?-12:0);
+ }
 }
 function render(){
- snapIndex=null;assetSnapIndex=null;roadSegmentIndex=null;
+ snapIndex=null;assetSnapIndex=null;roadSegmentIndex=null;referenceTargets=null;
  syncOriginControls();viewportScheduler.cancel();setMapLoading(false);featureViewportIndex=null;renderedWindow=null;updateView();
  renderMap();
  renderedScale=view.scale;
@@ -719,15 +1091,24 @@ function render(){
 function renderSelection(){
  const host=$('editShapes');
  host.replaceChildren();
- const f=getSelected();
- if(f&&featureVisible(f)){
-  const scale=view.scale,point=f.geometryType==='point'||f.kind==='note';
-  const outline={fill:'none',stroke:'#174f55','stroke-width':2.5,'vector-effect':'non-scaling-stroke','pointer-events':'none'};
+ const selection=getSelectedFeatures(),multiple=selection.length>1;
+ for(const f of selection){
+  const editable=canEditFeature(f),point=f.geometryType==='point'||f.kind==='note';
+  const outline={fill:'none',stroke:editable?'#174f55':'#728494','stroke-width':2.5,'vector-effect':'non-scaling-stroke','pointer-events':'none','data-selected-id':f.id};
+  if(!editable)outline['stroke-dasharray']='6 3';
   if(point)node('circle',{...outline,cx:f.points[0][0],cy:f.points[0][1],screen:{r:8}},host);
   else node('path',{...outline,d:featurePath(f,isPolygonFeature(f)),'stroke-linejoin':'round'},host);
-  if(f.assetPlacement){
+  if(multiple)continue;
+  if(f.shape){
+   const geometry=editorShape(f.shape.type,f.shape.controls,isPolygonFeature(f));
+   drawGeometryGuides(geometry,host);
+   if(editable)for(const [index,p] of f.shape.controls.entries()){
+    const handle=node('circle',{cx:p[0],cy:p[1],screen:{r:5},fill:'#fff',stroke:'#495d8b','stroke-width':1.8,'vector-effect':'non-scaling-stroke','data-shape-control':index,'data-id':f.id,cursor:'move'},host);
+    node('title',{},handle).textContent=EDITOR_SHAPES[f.shape.type].steps[index];
+   }
+  }else if(f.assetPlacement){
    if(labelsVisibleInEditor(project,f))label(f.name,[f.poi[0],f.poi[1]-f.assetPlacement.lot[1]/2],'#315b65',host,11,-12);
-  }else if(!locked(f)){
+  }else if(editable){
    for(const [partIndex,points]of geometryParts(f).entries())for(const [index,p]of points.entries()){
     const active=partIndex===selectedNode?.partIndex&&index===selectedNode?.index;
     node('circle',{cx:p[0],cy:p[1],screen:{r:active?6:4.5},fill:active?'#194f47':'#fff',
@@ -742,38 +1123,123 @@ function renderSelection(){
  }
 }
 function setTool(next,{keepAssetPanel=false,redraw=true}={}){
+ if(drag?.kind==='box'){
+  if(svg.hasPointerCapture(drag.pointerId))svg.releasePointerCapture(drag.pointerId);
+  drag=null;
+ }
  if(next==='asset-place')assetPanelMode='assets';
  else{
   assetSelection=null;assetHover=null;
   if(!keepAssetPanel)assetPanelMode='properties';
  }
- tool=next;draft=[];hover=null;snapPoint=null;selectedNode=null;
- if(next!=='select')selected=null;
- for(const [id,t]of [['selectTool','select'],['panTool','pan'],['measureTool','measure']])$(id).classList.toggle('active',next===t);
+ tool=next;draft=[];hover=null;snapPoint=null;referenceFeedback=null;selectedNode=null;
+ if(next!=='select'&&next!=='box'){selected=null;selectedGroup=null;}
+ for(const [id,t]of [['selectTool','select'],['boxSelectTool','box'],['panTool','pan'],['measureTool','measure']]){
+  $(id).classList.toggle('active',next===t);$(id).setAttribute('aria-pressed',String(next===t));
+ }
  viewport.style.cursor=next==='pan'?'grab':next==='select'?'default':'crosshair';
  $('finishBtn').disabled=true;$('cancelBtn').hidden=true;
  updateStatus();
- if(['building','interchange'].includes(next))$('toolStatus').textContent=`绘制${next==='building'?'功能建筑轮廓':'立交预留范围'} · ${next==='building'&&buildingGeometry==='point'?'1个点位':'至少3点'} · Enter完成`;
- if(redraw){render();renderProperties();}
+ if(redraw){if(project.proposal)render();else{renderDraft();renderSelection();}renderProperties();}
 }
 function drawOnLayer(key){
  if(project.settings.editor.layers[key].locked){toast('请先解锁图层');return;}
  if(activeLayer.key!==key||activeLayer.source!=='manual')activateLayer(key);
  beginDrawing();
 }
-function beginDrawing(){if(!project.settings.editor.layers[activeLayer.key]||activeLayer.key.startsWith('route:')||activeLayer.key.startsWith('terrain:')||activeLayer.key.startsWith('zoning:'))return;if(project.settings.editor.layers[activeLayer.key].locked){toast('请先解锁图层');return}const key=activeLayer.key;setTool(key==='road:interchange'?'interchange':key.split(':')[0]);renderProperties()}
-function finish(){const min=tool==='road'||tool==='measure'?2:tool==='building'&&buildingGeometry==='point'?1:3;if(draft.length<min)return;if(tool==='measure'){toast(fmt(length(draft)));return}if(!['road','zone','district','building','interchange'].includes(tool))return;const kind=tool,type=kind==='road'?roadType:kind==='building'?buildingType:zoneType;const f={id:crypto.randomUUID(),kind,type,name:kind==='road'?roadInfo(type).name:kind==='zone'?zoneInfo(type)[1]:kind==='district'?layerName(activeLayer.key):kind==='building'?BUILDINGS.find(b=>b[0]===type)[1]:'立交预留',notes:'',points:structuredClone(draft),source:activeLayer.source};if(kind==='road'){const style=project.settings.editor.roadStyles[type];Object.assign(f,{width:style.width,corridor:style.corridor,structure:type==='metro'?'tunnel':'ground'})}if(kind==='district')Object.assign(f,{level:districtLevel,color:project.settings.editor.layers[activeLayer.key]?.color||'#658c8b'});if(kind==='zone')f.category=zoneClass;if(kind==='building'){f.serviceLevel=buildingLevel;f.geometryType=buildingGeometry;if(buildingGeometry==='point'){f.points=f.points.slice(0,1);f.poi=[...f.points[0]];}const c=project.settings.editor.layers[activeLayer.key]?.color;if(c)f.color=c;}if(scopeId&&kind!=='interchange')f.interchangeId=scopeId;if(isPolygonFeature(f)&&area(f.points)<1){toast('多边形面积太小');return}try{
- const features=kind==='road'?draftRoadFeatures(f):[...project.features,f];
- validateInterchangeBounds({...project,features});
- addFeature(f,features);syncUI();
- }catch(error){toast(error.message);}}
+function drawingKind(){
+ const key=activeLayer.key;
+ if(!project.settings.editor.layers[key]||GROUPS.some(([id])=>id===key)||activeMunicipalClass||/^(route|terrain|zoning):/.test(key))return '';
+ return key==='road:interchange'?'interchange':key.split(':')[0];
+}
+function drawingShapeOptions(kind){
+ if(!kind||kind==='reference'||kind==='building'&&buildingGeometry==='point')return [];
+ return [['free',kind==='road'?'自由折线':'自由多边形'],...Object.entries(EDITOR_SHAPES).filter(([key])=>key!=='line'||kind==='road').map(([key,shape])=>[key,shape.name])];
+}
+function beginDrawing(){
+ const kind=drawingKind();if(!kind)return;
+ const editor=project.settings.editor,layer=editor.layers[activeLayer.key];
+ if(layer.locked){toast('请先解锁图层');return;}
+ if(!layer.visible||editor.groups[groupForLayer(activeLayer.key)]===false){toast('请先显示当前图层');return;}
+ if(!drawingShapeOptions(kind).some(([key])=>key===drawingShape))drawingShape='free';
+ setTool(kind);
+}
+function finish(){
+ if(tool==='measure'){if(draft.length>=2)toast(fmt(length(draft)));return;}
+ const kind=drawingKind();
+ if(!kind||tool!==kind)return;
+ const editor=project.settings.editor,layer=editor.layers[activeLayer.key];
+ if(layer.locked||!layer.visible||editor.groups[groupForLayer(activeLayer.key)]===false){toast('请显示并解锁当前图层');return;}
+ const min=kind==='road'?2:kind==='reference'||kind==='building'&&buildingGeometry==='point'?1:3;
+ let geometry=null;
+ if(shapeDrawing()){
+  if(draft.length<EDITOR_SHAPES[drawingShape].steps.length)return;
+  geometry=editorShape(drawingShape,draft,kind!=='road');
+  if(!geometry){toast('请调整控制点，图形尺寸至少为 1 米');return;}
+  if(!geometry.points.every(inMap)||!geometry.controls.every(inMap)){toast('图形超出地图边界，请调整控制点');return;}
+ }else if(draft.length<min)return;
+ const type=kind==='reference'?'point':kind==='road'?roadType:kind==='building'?buildingType:zoneType;
+ const name=kind==='reference'?'参考点':kind==='road'?roadInfo(type).name:kind==='zone'?zoneInfo(type)[1]:kind==='district'?layerName(activeLayer.key):kind==='building'?BUILDINGS.find(b=>b[0]===type)[1]:'立交预留';
+ const f={id:crypto.randomUUID(),kind,type,name,notes:'',points:structuredClone(geometry?.points||draft),source:activeLayer.source};
+ if(geometry)f.shape={type:drawingShape,controls:structuredClone(geometry.controls)};
+ if(kind==='reference')f.geometryType='point';
+ if(kind==='road'){
+  const style=project.settings.editor.roadStyles[type];
+  Object.assign(f,{width:style.width,corridor:style.corridor,structure:type==='metro'?'tunnel':'ground'});
+ }
+ if(kind==='district')Object.assign(f,{level:districtLevel,color:project.settings.editor.layers[activeLayer.key]?.color||'#658c8b'});
+ if(kind==='zone')f.category=zoneClass;
+ if(kind==='building'){
+  f.serviceLevel=buildingLevel;f.geometryType=buildingGeometry;
+  if(buildingGeometry==='point'){f.points=f.points.slice(0,1);f.poi=[...f.points[0]];}
+  const color=project.settings.editor.layers[activeLayer.key]?.color;if(color)f.color=color;
+ }
+ if(scopeId&&kind!=='interchange'&&kind!=='reference')f.interchangeId=scopeId;
+ if(!inEditLayer(f)){toast('请先选定要绘制的图层');return;}
+ if(isPolygonFeature(f)&&area(f.points)<1){toast('多边形面积太小');return;}
+ try{
+  const features=kind==='road'&&(!geometry||drawingShape==='line')?draftRoadFeatures(f):[...project.features,f];
+  validateInterchangeBounds({...project,features});
+  addFeature(f,features);syncUI();
+ }catch(error){toast(error.message);}
+}
 const options=(items,value)=>items.map(([v,n])=>`<option value="${escape(v)}" ${v===value?'selected':''}>${escape(n)}</option>`).join('');
-function renderProperties(){if(inspectorMode!=='properties')return;syncAssetPanelTabs();const host=$('propertiesPanel'),f=getSelected();if(assetPanelMode==='assets'){renderAssetLibrary(host);return;}if(f?.assetPlacement){renderPlacedAssetProperties(host,f);renderOriginControls(host,f);return;}document.querySelector('.right-panel').classList.add('has-selection');if(!f){renderLayerProperties(host);return;}
- const isRoad=f.kind==='road',poly=isPolygonFeature(f),isLocked=locked(f),disabled=isLocked?'disabled':'';const fields=`<label class="field-label">名称</label><input id="editName" type="text" value="${escape(f.name)}" maxlength="300" ${disabled}><label class="field-label">显示颜色</label><input id="editColor" type="color" value="${f.color||(isRoad||f.kind==='route'?networkDisplay(f,project.settings.editor,view.scale).color:f.kind==='zone'?classInfo(f)[2]:'#668b85')}" ${disabled}>`;
- host.innerHTML=`<button id="backLayer" class="back-button">← 返回图层对象列表</button><div class="object-kind">${escape(layerName(layerKey(f)))}${isLocked?' · 已锁定':''}</div><h2 class="property-title">${escape(f.name)}</h2><p class="property-hint">${f.geometryType==='point'?'拖动点位调整位置。':'拖动节点调整边界；双击边缘增加节点。'}${selectedNode!==null?'当前节点 '+(selectedNode.index+1):''}</p>${fields}${['road','zone','building'].includes(f.kind)?`<label class="field-label">所属片区</label><select id="editDistrict" ${disabled}>${options([['','未归属'],...project.features.filter(x=>x.kind==='district'&&x.level!=='tile').map(x=>[x.id,x.name])],f.districtId||'')}</select>`:''}${isRoad?`<label class="field-label">路网等级 / 分类</label><select id="editType" ${disabled}>${options(ROADS.filter(r=>r.id!=='bus'||f.type==='bus').map(r=>[r.id,r.name]),f.type)}</select><div class="two-fields"><label class="field-label">路宽 m<input id="editWidth" type="number" min="1" max="1000" value="${f.width}" ${disabled}></label><label class="field-label">走廊 m<input id="editCorridor" type="number" min="1" max="2000" value="${f.corridor}" ${disabled}></label></div><label class="field-label">结构</label><select id="editStructure" ${disabled}>${options([['ground','地面'],['elevated','高架'],['bridge','桥梁'],['tunnel','地下 / 隧道']],f.structure)}</select>${networkCrossingFields(f,disabled)}`:''}${f.kind==='district'?`<label class="field-label">片区等级</label><select id="editLevel" ${disabled}>${options([['large','大片区'],['small','小片区'],['tile','游戏地块']],f.level||'large')}</select>${f.level==='small'?`<label class="field-label">所属大片区</label><select id="editParent" ${disabled}>${options([['','未归属'],...project.features.filter(x=>x.kind==='district'&&(x.level||'large')==='large'&&x.id!==f.id).map(x=>[x.id,x.name])],f.parentId||'')}</select>`:''}`:''}${f.kind==='zone'?`<label class="field-label">区块大类</label><select id="editCategory" ${disabled}>${options(BLOCK_CLASSES,blockClass(f))}</select><label class="field-label">详细用途</label><select id="editType" ${disabled}>${ZONES.map(([g,zs])=>`<optgroup label="${g}">${options(zs,f.type)}</optgroup>`).join('')}</select><label class="field-label">标签（逗号分隔）</label><input id="editTags" type="text" maxlength="1000" value="${escape(f.tags||'')}" ${disabled}>`:''}${f.kind==='building'?`<label class="field-label">建筑功能</label><select id="editType" ${disabled}>${options(BUILDINGS,buildingCategory(f.type))}</select><label class="field-label">服务等级 / 层级</label><input id="editService" type="text" maxlength="100" value="${escape(f.serviceLevel||'基层')}" ${disabled}>`:''}${poly?`<label class="field-label">填充</label><select id="editFill" ${disabled}>${options([['solid','纯色'],['hatch','斜线'],['dots','点状']],f.fillStyle||'solid')}</select><div class="metric-box"><small>面积</small><strong>${fmtArea(area(f.points))}</strong></div>`:''}${isRoad?`<p class="muted">中心线 ${fmt(length(f.points))}</p>`:''}<label class="field-label">限定立交范围</label><select id="editScope" ${disabled}>${options([['','不限定'],...project.features.filter(x=>x.kind==='interchange'&&x.id!==f.id).map(x=>[x.id,x.name])],f.interchangeId||'')}</select><label class="field-label">备注</label><textarea id="editNotes" rows="4" maxlength="20000" ${disabled}>${escape(f.notes)}</textarea>${f.kind==='interchange'?'<div class="dialog-actions"><button id="detailManual">框内细化</button></div>':''}<button id="deleteObject" class="danger-button" ${disabled}>${selectedNode!==null?'删除选中节点':'删除对象'}</button>`;
+function renderBatchProperties(host,features){
+ const editable=features.filter(canEditFeature).length;
+ host.innerHTML=`<div class="object-kind">${escape(layerName(activeLayer.key))}</div><h2 class="property-title">已选 ${features.length} 个对象</h2><p class="muted">${editable} 个可编辑。拖动选中的对象可一起移动。</p>
+ <div class="selection-batch-actions"><button id="clearBatchSelection">清除选择</button><button id="deleteBatchSelection" class="danger-button" ${editable?'':'disabled'}>删除 ${editable} 个可编辑对象</button></div>
+ <div class="selection-batch-list">${features.slice(0,50).map((f,i)=>`<button class="object-item" data-batch-index="${i}"><span>${escape(f.name)}</span><small>${canEditFeature(f)?'查看':'只读'}</small></button>`).join('')}${features.length>50?`<p class="muted">另有 ${features.length-50} 个对象</p>`:''}</div>`;
+ $('clearBatchSelection').onclick=()=>selectFeature(null);
+ $('deleteBatchSelection').onclick=deleteSelected;
+ for(const button of host.querySelectorAll('[data-batch-index]'))button.onclick=()=>selectFeature(features[Number(button.dataset.batchIndex)]);
+}
+function renderReferenceCoordinates(host,f,disabled){
+ const fields=document.createElement('div');fields.className='two-fields reference-coordinate-fields';
+ fields.innerHTML=['X','Y'].map((axis,i)=>`<label class="field-label">${axis} (m)<input id="reference${axis}" type="number" step="any" min="0" max="${SIZE}" value="${f.points[0][i]}" ${disabled}></label>`).join('');
+ host.insertBefore(fields,$('editColor').previousElementSibling);
+ for(const [index,field] of Array.from(fields.querySelectorAll('input')).entries())field.onchange=()=>{
+  const value=field.valueAsNumber;
+  if(!Number.isFinite(value)||value<0||value>SIZE){toast(`坐标应在 0 至 ${SIZE} 米之间`);renderProperties();return;}
+  const point=[...f.points[0]];point[index]=value;
+  if(commitGeometryChange(f,{...f,points:[point]}))changed();
+ };
+}
+function renderProperties(){if(inspectorMode!=='properties')return;syncAssetPanelTabs();const host=$('propertiesPanel'),f=getSelected();if(assetPanelMode==='assets'){renderAssetLibrary(host);return;}
+ document.querySelector('.right-panel').classList.add('has-selection');
+ const selection=getSelectedFeatures();if(selection.length>1){renderBatchProperties(host,selection);return;}
+ if(f?.assetPlacement){renderPlacedAssetProperties(host,f);renderOriginControls(host,f);return;}if(!f){renderLayerProperties(host);return;}
+ const municipal=municipalClass(f),isRoad=f.kind==='road',poly=isPolygonFeature(f),isLocked=!canEditFeature(f),disabled=isLocked?'disabled':'';const fields=`<label class="field-label">名称</label><input id="editName" type="text" value="${escape(f.name)}" maxlength="300" ${disabled}><label class="field-label">显示颜色</label><input id="editColor" type="color" value="${(municipal?featureDisplayColor(project,f):f.color)||(isRoad||f.kind==='route'?networkDisplay(f,project.settings.editor,view.scale).color:f.kind==='zone'?classInfo(f)[2]:'#668b85')}" ${disabled}>`;
+ host.innerHTML=`<button id="backLayer" class="back-button">← 返回图层对象列表</button><div class="object-kind municipal-object-kind">${municipal?municipalLegendIcon(municipal)+escape(municipalMarkerStyle(municipal).name):escape(layerName(layerKey(f)))}${isLocked?' · 只读':''}</div><h2 class="property-title">${escape(f.name)}</h2><p class="property-hint">${isLocked?escape(editBlockReason(f)):f.shape?'拖动控制点调整图形。':f.geometryType==='point'?'拖动点位调整位置。':'拖动节点调整边界，双击边缘增加节点。'}${selectedNode!==null?'当前节点 '+(selectedNode.index+1):''}</p>${fields}${['road','zone','building'].includes(f.kind)?`<label class="field-label">所属片区</label><select id="editDistrict" ${disabled}>${options([['','未归属'],...project.features.filter(x=>x.kind==='district'&&x.level!=='tile').map(x=>[x.id,x.name])],f.districtId||'')}</select>`:''}${isRoad?`<label class="field-label">路网等级 / 分类</label><select id="editType" ${disabled}>${options(ROADS.filter(r=>r.id!=='bus'||f.type==='bus').map(r=>[r.id,r.name]),f.type)}</select><div class="two-fields"><label class="field-label">路宽 m<input id="editWidth" type="number" min="1" max="1000" value="${f.width}" ${disabled}></label><label class="field-label">走廊 m<input id="editCorridor" type="number" min="1" max="2000" value="${f.corridor}" ${disabled}></label></div><label class="field-label">结构</label><select id="editStructure" ${disabled}>${options([['ground','地面'],['elevated','高架'],['bridge','桥梁'],['tunnel','地下 / 隧道']],f.structure)}</select>${networkCrossingFields(f,disabled)}`:''}${f.kind==='district'?`<label class="field-label">片区等级</label><select id="editLevel" ${disabled}>${options([['large','大片区'],['small','小片区'],['tile','游戏地块']],f.level||'large')}</select>${f.level==='small'?`<label class="field-label">所属大片区</label><select id="editParent" ${disabled}>${options([['','未归属'],...project.features.filter(x=>x.kind==='district'&&(x.level||'large')==='large'&&x.id!==f.id).map(x=>[x.id,x.name])],f.parentId||'')}</select>`:''}`:''}${f.kind==='zone'?`<label class="field-label">区块大类</label><select id="editCategory" ${disabled}>${options(BLOCK_CLASSES,blockClass(f))}</select><label class="field-label">详细用途</label><select id="editType" ${disabled}>${ZONES.map(([g,zs])=>`<optgroup label="${g}">${options(zs,f.type)}</optgroup>`).join('')}</select><label class="field-label">标签（逗号分隔）</label><input id="editTags" type="text" maxlength="1000" value="${escape(f.tags||'')}" ${disabled}>`:''}${f.kind==='building'?`<label class="field-label">建筑功能</label><select id="editType" ${disabled}>${options(BUILDINGS,buildingCategory(f.type))}</select><label class="field-label">服务等级 / 层级</label><input id="editService" type="text" maxlength="100" value="${escape(f.serviceLevel||'基层')}" ${disabled}>`:''}${poly?`<label class="field-label">填充</label><select id="editFill" ${disabled}>${options([['solid','纯色'],['hatch','斜线'],['dots','点状']],f.fillStyle||'solid')}</select><div class="metric-box"><small>面积</small><strong>${fmtArea(area(f.points))}</strong></div>`:''}${isRoad?`<p class="muted">中心线 ${fmt(length(f.points))}</p>`:''}${f.kind==='reference'?'':`<label class="field-label">限定立交范围</label><select id="editScope" ${disabled}>${options([['','不限定'],...project.features.filter(x=>x.kind==='interchange'&&x.id!==f.id).map(x=>[x.id,x.name])],f.interchangeId||'')}</select>`}<label class="field-label">备注</label><textarea id="editNotes" rows="4" maxlength="20000" ${disabled}>${escape(f.notes)}</textarea>${f.kind==='interchange'?'<div class="dialog-actions"><button id="detailManual">框内细化</button></div>':''}<button id="deleteObject" class="danger-button" ${disabled}>${selectedNode!==null?'删除选中节点':'删除对象'}</button>`;
  renderOriginControls(host,f);
- $('backLayer').onclick=()=>activateLayer(layerKey(f));
- const bind=(id,prop,convert=x=>x)=>{const el=$(id);if(!el)return;el.onchange=()=>{const target=structuredClone(f);target[prop]=convert(el.value);if(prop==='name')target.name=target.name.trim()||f.name;if(prop==='width'){target.corridor=Math.max(target.corridor,target.width);if(target.outlineParts)target.outlineDetached=true;}if(prop==='level'&&target.level==='large'){delete target.parentId;}if(prop==='level'&&target.level==='small'&&project.features.some(x=>x.parentId===f.id)){toast('请先调整下属小片区的归属');renderProperties();return}try{const edited=commitFeatureEdit(f,target);activeLayer={key:layerKey(edited),source:featureSource(project,edited)};buildLayers();syncUI();render();renderProperties();persist()}catch(e){toast(e.message);renderProperties()}}};
+ $('backLayer').onclick=()=>selectFeature(null);
+ if(f.kind==='reference')renderReferenceCoordinates(host,f,disabled);
+ if(f.shape){
+  const shapeTools=document.createElement('div');shapeTools.className='shape-draw-controls';
+  shapeTools.innerHTML=`<p class="muted">${EDITOR_SHAPES[f.shape.type].name} · 拖动地图上的控制点调整</p><button id="detachEditorShape" ${disabled}>转为自由节点</button>`;
+  host.insertBefore(shapeTools,$('deleteObject'));
+  $('detachEditorShape').onclick=()=>{const next={...f};delete next.shape;if(commitGeometryChange(f,next)){selectedNode=null;changed();}};
+ }
+ const bind=(id,prop,convert=x=>x)=>{const el=$(id);if(!el)return;el.onchange=()=>{const target=structuredClone(f);target[prop]=convert(el.value);if(prop==='name')target.name=target.name.trim()||f.name;if(prop==='width'){target.corridor=Math.max(target.corridor,target.width);if(target.outlineParts)target.outlineDetached=true;}if(prop==='level'&&target.level==='large'){delete target.parentId;}if(prop==='level'&&target.level==='small'&&project.features.some(x=>x.parentId===f.id)){toast('请先调整下属小片区的归属');renderProperties();return}try{commitFeatureEdit(f,target);buildLayers();syncUI();render();renderProperties();persist()}catch(e){toast(e.message);renderProperties()}}};
  for(const [id,prop]of [['editDistrict','districtId'],['editName','name'],['editColor','color'],['editType','type'],['editStructure','structure'],['editLevel','level'],['editParent','parentId'],['editCategory','category'],['editTags','tags'],['editService','serviceLevel'],['editFill','fillStyle'],['editNotes','notes'],['editScope','interchangeId']])bind(id,prop);bind('editWidth','width',Number);bind('editCorridor','corridor',Number);bind('editStackLevel','stackLevel',v=>v===''?undefined:Number(v));$('deleteObject').onclick=deleteSelected;
  renderObjectAttributes(host,f,isLocked);
  if(f.kind==='district')renderDistrictStatistics(host,f);
@@ -1038,7 +1504,7 @@ function renderTerrainProperties(host){
  const locked=isGroup?children.every(k=>e.layers[k].locked):layer.locked,visible=e.groups.terrain!==false&&(isGroup||layer.visible);
  const disabled=terrainImporting||locked?'disabled':'';
  const m=r?.metadata,number=n=>Number(n.toFixed(3)).toLocaleString('zh-CN');
- host.innerHTML=`${!isGroup?'<button id="backGroup" class="back-button">← 返回地形</button>':''}<div class="object-kind">图层属性 · GeoTIFF</div><h2 class="property-title">${escape(layerName(key))}</h2>
+ host.innerHTML=`${layerPropertyTop(isGroup?'':'地形')}<h2 class="property-title">${escape(layerName(key))}</h2>
  <div class="layer-toggles"><label class="check-row"><input id="terrainVisible" type="checkbox" ${visible?'checked':''}>显示图层</label><label class="check-row"><input id="terrainLocked" type="checkbox" ${locked?'checked':''}>${isGroup?'锁定全部子层':'锁定图层'}</label></div>
  ${isGroup?`<div class="layer-subcategories">${children.map(k=>{const derived=k==='terrain:landwater'||k==='terrain:topographic',available=k==='terrain:topographic'?project.rasters.length>0:project.rasters.some(x=>x.id===(k==='terrain:landwater'?'depth':k.split(':')[1]));return `<button data-terrain-layer="${k}">${escape(layerName(k))} <small>${available?(derived?'可用':'已导入'):'未导入'}</small></button>`;}).join('')}</div>`:''}
  <button id="importTerrain" class="wide-button primary" ${disabled}>${terrainImporting?'正在读取…':r?'替换 GeoTIFF':'＋ 导入 GeoTIFF'}</button>${isGroup?`<button id="importTerrainFolder" class="wide-button" ${disabled}>导入 Carto 文件夹</button>`:''}
@@ -1054,7 +1520,7 @@ function renderTerrainProperties(host){
 }
 function renderSimpleTerrainProperties(host){
  const e=project.settings.editor,layer=e.layers['terrain:landwater'],style=e.simpleTerrain,depth=project.rasters.find(r=>r.id==='depth'),disabled=layer.locked?'disabled':'';
- host.innerHTML=`<button id="backGroup" class="back-button">← 返回地形</button><div class="object-kind">图层属性 · 简图</div><h2 class="property-title">陆地／水体简图</h2>
+ host.innerHTML=`${layerPropertyTop('地形')}<h2 class="property-title">陆地／水体简图</h2>
  <div class="layer-toggles"><label class="check-row"><input id="simpleVisible" type="checkbox" ${e.groups.terrain!==false&&layer.visible?'checked':''}>显示图层</label><label class="check-row"><input id="simpleLock" type="checkbox" ${layer.locked?'checked':''}>锁定图层</label></div>
  <p class="muted">陆地和水体各用一种纯色，只显示海岸线、河流和岛屿边界。根据 Depth 自动生成，无需再次导入。开启时显示在彩色地形与水深上方。</p>
  ${depth?`<div class="two-fields"><label class="field-label">陆地颜色<input id="simpleLandColor" type="color" value="${style.landColor}" ${disabled}></label><label class="field-label">水体颜色<input id="simpleWaterEdit" type="color" value="${style.waterColor}" ${disabled}></label></div><label class="range-row">透明度<input id="simpleOpacity" type="range" min="0" max="100" value="${style.opacity}" ${disabled}><output id="simpleOpacityValue">${style.opacity}%</output></label><div class="simple-terrain-legend"><span><i style="background:${style.landColor}"></i>陆地</span><span><i style="background:${style.waterColor}"></i>水体</span></div><dl class="raster-metadata"><dt>边界来源</dt><dd>${escape(depth.source?.dataset?depth.source.dataset+' / '+depth.fileName:depth.fileName)}</dd><dt>源分辨率</dt><dd>${depth.metadata.width} × ${depth.metadata.height}</dd></dl>`:`<p class="muted">请先导入 Depth.tif，才能识别陆地与水体。</p><button id="simpleImportDepth" class="wide-button primary" ${disabled}>导入 Depth 水体数据</button>`}`;
@@ -1077,7 +1543,7 @@ function renderTopographicProperties(host){
   else if(preview.datum===null)message='无法自动推算海平面，可手动填写基准高程以显示等高线。';
   else message='当前海平面基准：'+preview.datum+' 米，地图标注以海平面为 0 米。';
  }
- host.innerHTML=`<button id="backGroup" class="back-button">← 返回地形</button><div class="object-kind">图层属性 · 等高线</div><h2 class="property-title">等高线地形图</h2>
+ host.innerHTML=`${layerPropertyTop('地形')}<h2 class="property-title">等高线地形图</h2>
  <div class="layer-toggles"><label class="check-row"><input id="topographicVisible" type="checkbox" ${topographicVisible()?'checked':''}>显示图层</label><label class="check-row"><input id="topographicLock" type="checkbox" ${layer.locked?'checked':''}>锁定图层</label></div>
  <p class="muted">融合原始高程和水深，显示与导出地形 PNG 一致的等高线、默认配色及海拔标注。</p>
  <p class="muted" role="status">${escape(message)}</p>
@@ -1143,19 +1609,24 @@ function renderObjectAttributes(host,f,isLocked){
  $('saveObjectAttributes').onclick=()=>commit(target=>{target.attributes={...(target.attributes||{})};for(const el of section.querySelectorAll('[data-attribute]:not(:disabled)')){if(el.value==='')delete target.attributes[el.dataset.attribute];else target.attributes[el.dataset.attribute]=el.type==='number'?Number(el.value):el.value;}});
  if($('savePoi'))$('savePoi').onclick=()=>commit(target=>{const x=$('editPoiX').value,y=$('editPoiY').value;if(x===''&&y===''&&target.geometryType!=='point'){delete target.poi;return}if(x===''||y==='')throw Error('请同时填写 POI 的 X、Y 坐标');target.poi=[Number(x),Number(y)];if(target.geometryType==='point')target.points=[[...target.poi]]});
 }
+function layerPropertyTop(backLabel=''){
+ const back=backLabel?`<button id="backGroup" class="back-button">← 返回${escape(backLabel)}</button>`:'';
+ return `<div class="layer-property-top">${back}<span class="object-kind">图层属性</span></div>`;
+}
 function renderLayerProperties(host){
  if(groupForLayer(activeLayer.key)==='terrain'){renderTerrainProperties(host);return;}
  const key=activeLayer.key,e=project.settings.editor,isGroup=GROUPS.some(([id])=>id===key),group=groupForLayer(key),layer=e.layers[key],items=layerObjects(key).filter(f=>key!=='building:municipal'||!activeMunicipalClass||municipalClass(f)===activeMunicipalClass),style=key.startsWith('road:')&&key!=='road:interchange'?e.roadStyles[key.split(':')[1]]:null;
  const childKeys=isGroup?layerKeysForGroup(key):[],isLocked=isGroup?childKeys.every(k=>e.layers[k].locked):layer.locked;
  const visible=e.groups[group]!==false&&(isGroup||layer.visible)&&(key!=='building:municipal'||!activeMunicipalClass||municipalVisible(e,activeMunicipalClass));
- host.innerHTML=`${!isGroup?`<button id="backGroup" class="back-button">← 返回${escape(layerName(group))}</button>`:''}<div class="object-kind">图层属性</div><h2 class="property-title">${escape(key==='building:municipal'&&activeMunicipalClass?MUNICIPAL_TYPES.find(([id])=>id===activeMunicipalClass)?.[1]:layerName(key))}<small class="layer-object-count">${items.length} 个对象</small></h2>
+ const kind=drawingKind(),shapeOptions=drawingShapeOptions(kind);
+ const drawControls=kind?`<div class="shape-draw-controls">${shapeOptions.length?`<div class="inline-edit-field"><label for="drawGeometry">绘制图形</label><select id="drawGeometry" ${isLocked?'disabled':''}>${options(shapeOptions,drawingShape)}</select></div>`:''}<button id="drawLayer" class="wide-button primary" ${isLocked?'disabled':''}>＋ ${tool===kind?'重新开始绘制':kind==='reference'?'添加参考点':'绘制新对象'}</button></div>`:'';
+ host.innerHTML=`${layerPropertyTop(!isGroup&&key!=='reference:point'?layerName(group):'')}<h2 class="property-title">${escape(key==='building:municipal'&&activeMunicipalClass?MUNICIPAL_TYPES.find(([id])=>id===activeMunicipalClass)?.[1]:layerName(key))}<small class="layer-object-count">${items.length} 个对象</small></h2>
  ${scopeId?'<p class="scope-banner">正在立交框内细化 <button id="exitScope">退出范围</button></p>':''}
- <div class="layer-toggles"><label class="check-row"><input id="layerVisibleEdit" type="checkbox" ${visible?'checked':''}>显示图层</label><label class="check-row"><input id="layerLock" type="checkbox" ${isLocked?'checked':''}>${isGroup?'锁定全部子层':'锁定图层'}</label></div>
- ${layerLabelsToggleHtml(key)}
- ${style?`<div class="structure-colors"><label>地面<input id="layerColorEdit" type="color" value="${style.color}" aria-label="地面颜色"></label><label>高架／桥梁<input id="layerElevatedColor" type="color" value="${style.elevatedColor}" aria-label="高架颜色"></label><label>隧道<input id="layerTunnelColor" type="color" value="${style.tunnelColor}" aria-label="隧道颜色"></label></div>${key==='road:rail'?'<p class="muted">连续黑轨＋白色内块；段长随路宽等比例变化，可在统一设定中调整。</p>':''}<div class="two-fields"><label class="field-label">新建路宽 (m)<input id="layerWidthEdit" type="number" min="1" max="1000" value="${style.width}"></label><label class="field-label">新建走廊 (m)<input id="layerCorridorEdit" type="number" min="1" max="2000" value="${style.corridor}"></label></div>`:!isGroup&&key!=='zone'?`<label class="field-label" for="layerColorEdit">小类统一显示颜色</label><input id="layerColorEdit" type="color" value="${layer.color||defaultLayerColor(key)}">`:''}
+ <div class="layer-toggles layer-toggles-inline"><label class="check-row"><input id="layerVisibleEdit" type="checkbox" ${visible?'checked':''}>显示图层</label><label class="check-row"><input id="layerLock" type="checkbox" ${isLocked?'checked':''}>锁定图层</label>${layerLabelsToggleHtml(key)}</div>
+ ${style?`<div class="structure-colors"><label>地面<input id="layerColorEdit" type="color" value="${style.color}" aria-label="地面颜色"></label><label>高架／桥梁<input id="layerElevatedColor" type="color" value="${style.elevatedColor}" aria-label="高架颜色"></label><label>隧道<input id="layerTunnelColor" type="color" value="${style.tunnelColor}" aria-label="隧道颜色"></label></div>${key==='road:rail'?'<p class="muted">连续黑轨＋白色内块；段长随路宽等比例变化，可在统一设定中调整。</p>':''}<div class="layer-road-dimensions"><label class="inline-edit-field">新建路宽<input id="layerWidthEdit" aria-label="新建路宽（米）" type="number" min="1" max="1000" value="${style.width}"></label><label class="inline-edit-field">新建走廊<input id="layerCorridorEdit" aria-label="新建走廊（米）" type="number" min="1" max="2000" value="${style.corridor}"></label></div>`:!isGroup&&key!=='zone'?`<label class="field-label" for="layerColorEdit">小类统一显示颜色</label><input id="layerColorEdit" type="color" value="${layer.color||defaultLayerColor(key)}">`:''}
  ${key==='network'?widthModeField('layerWidthMode',e.widthMode)+'<p class="muted">按对象路宽（米）显示；缩小后细路会变细。概览模式仅增加最小可见宽度。</p>':''}${key==='route'?'<label class="field-label">运营线路宽度 (m)<input id="routeWidthEdit" type="number" min="0.25" max="6" step="0.25" value="'+e.routeWidth+'"></label><p class="muted">细线叠在路网之上，按米宽随比例缩放。</p>':''}${key==='zone'?`<div class="two-fields"><div><label class="field-label" for="newClass">新建区块大类</label><select id="newClass">${options(BLOCK_CLASSES,zoneClass)}</select></div><div><label class="field-label" for="newZoneType">详细用途</label><select id="newZoneType">${ZONES.map(([n,z])=>`<optgroup label="${n}">${options(z,zoneType)}</optgroup>`).join('')}</select></div></div><label class="range-row">图层透明度<input id="layerOpacityEdit" type="range" min="10" max="85" value="${project.settings.zoneOpacity}"><output id="layerOpacityValue">${project.settings.zoneOpacity}%</output></label>`:''}
  ${key.startsWith('building:')?`<label class="field-label" for="newBuildingGeometry">新建对象几何</label><select id="newBuildingGeometry">${options([['polygon','建筑轮廓（多边形）'],['point','POI 设施点位']],buildingGeometry)}</select>`:''}
- ${isGroup?`<div class="layer-subcategories">${childKeys.map(k=>`<button data-child-layer="${k}">${escape(layerName(k))} <small>${layerObjects(k).length}</small></button>`).join('')}</div>${key==='network'?'<label class="check-row"><input id="networkOutlinesToggle" type="checkbox" '+(e.networkOutlines!==false?'checked':'')+'>放大后显示导入路网轮廓</label><button id="layerNetworkSettings" class="wide-button">路网统一设定 ⚙</button>':''}`:`<button id="drawLayer" class="wide-button primary" ${key.startsWith('route:')||key.startsWith('zoning:')?'disabled':''}>＋ ${tool==='select'?'绘制新对象':'正在绘制 · Enter 完成'}</button>`}
+ ${isGroup?`<div class="layer-subcategories">${childKeys.map(k=>`<button data-child-layer="${k}">${escape(layerName(k))} <small>${layerObjects(k).length}</small></button>`).join('')}</div>${key==='network'?'<label class="check-row"><input id="networkOutlinesToggle" type="checkbox" '+(e.networkOutlines!==false?'checked':'')+'>放大后显示导入路网轮廓</label><button id="layerNetworkSettings" class="wide-button">路网统一设定 ⚙</button>':''}`:drawControls}
  ${key==='building:municipal'?municipalControlsHtml():''}${isGroup&&['area','network','building','route'].includes(key)?groupPaletteHtml(key):''}${layerSchemaHtml(key)}<div class="object-list-heading"><span>对象列表</span><small>${items.length}</small></div><input id="objectSearch" type="text" aria-label="搜索当前图层对象" placeholder="按名称查找" value="${escape(listQuery)}">
  <div id="objectList"></div>`;
  if(key==='building:municipal')bindMunicipalControls(host);
@@ -1165,6 +1636,7 @@ function renderLayerProperties(host){
  $('layerLock').onchange=ev=>{checkpoint();if(isGroup)childKeys.forEach(k=>e.layers[k].locked=ev.target.checked);else layer.locked=ev.target.checked;changed()};
  bindGroupPalette(host);
  if($('drawLayer'))$('drawLayer').onclick=beginDrawing;
+ if($('drawGeometry'))$('drawGeometry').onchange=ev=>{drawingShape=ev.target.value;if(tool===kind)beginDrawing();};
  if($('layerNetworkSettings'))$('layerNetworkSettings').onclick=openNetworkSettings;
  if($('layerWidthMode'))$('layerWidthMode').onchange=ev=>{checkpoint();e.widthMode=ev.target.value;changed();};
  if($('routeWidthEdit'))$('routeWidthEdit').onchange=ev=>{const next=structuredClone(project);next.settings.editor.routeWidth=Number(ev.target.value);try{const valid=prepareEditor(next);checkpoint();project=valid;changed();}catch(error){toast(error.message);renderProperties();}};
@@ -1174,7 +1646,11 @@ function renderLayerProperties(host){
  for(const id of ['layerColorEdit','layerElevatedColor','layerTunnelColor','layerWidthEdit','layerCorridorEdit'])if($(id))$(id).onchange=saveStyle;
  if($('newClass'))$('newClass').onchange=ev=>zoneClass=ev.target.value;
  if($('newZoneType'))$('newZoneType').onchange=ev=>zoneType=ev.target.value;
- if($('newBuildingGeometry'))$('newBuildingGeometry').onchange=ev=>buildingGeometry=ev.target.value;
+ if($('newBuildingGeometry'))$('newBuildingGeometry').onchange=ev=>{
+  buildingGeometry=ev.target.value;
+  if(buildingGeometry==='point')drawingShape='free';
+  if(tool==='building')beginDrawing();else renderProperties();
+ };
  if($('layerOpacityEdit'))$('layerOpacityEdit').oninput=ev=>{project.settings.zoneOpacity=Number(ev.target.value);$('layerOpacityValue').textContent=ev.target.value+'%';$('zoneOpacity').value=ev.target.value;$('zoneOpacityValue').textContent=ev.target.value+'%';render();persist()};
  const byId=new Map(items.map(f=>[f.id,f]));
  const list=$('objectList'),pageSize=100;
@@ -1453,21 +1929,25 @@ function openAssetModMenu(event,modId,url){
 function startAssetPlacement(pack,a){
  project.settings.editor.origins.planning=true;
  const key='building:'+a.type;if(project.settings.editor.layers[key].locked){toast('对应建筑图层已锁定，请先解锁');return;}
- const rotation=assetSelection?.rotation||0;assetSelection={pack,asset:a,rotation};assetPackId=pack.id;assetHover=null;selected=null;activeLayer={key,source:'manual'};buildingType=a.type;
+ const rotation=assetSelection?.rotation||0;assetSelection={pack,asset:a,rotation};assetPackId=pack.id;assetHover=null;selected=null;selectedGroup=null;activeMunicipalClass=null;drawingShape='free';activeLayer={key,source:'manual'};buildingType=a.type;
  project.settings.editor.groups.building=true;project.settings.editor.layers.building.visible=true;project.settings.editor.layers[key].visible=true;
- setTool('asset-place');if(view.scale<fitScale*10){view.scale=fitScale*12;render();}syncUI();renderAssetPackages();toast('已选择 '+a.name+'；在地图上单击摆放');
+ setTool('asset-place',{redraw:false});if(view.scale<fitScale*10)view.scale=fitScale*12;
+ syncUI();render();renderProperties();renderAssetPackages();toast('已选择 '+a.name+' · 在地图上单击摆放');
 }
 function changeAssetAngle(value){if(!assetSelection)return;assetSelection.rotation=buildingAngle(value);if($('assetAngle'))$('assetAngle').value=assetSelection.rotation;updateAssetStatus();renderAssetPreview();}
 function updateAssetStatus(){if(!assetSelection)return;$('toolStatus').textContent=`摆放 ${assetSelection.asset.name} · ${assetSelection.rotation}° · 单击落位 · R 旋转 · 右键取消`;$('toolStatus').title=$('toolStatus').textContent;}
 function assetHoverPoint(e){
  const point=screenPoint(e);
- if(!project.settings.snap)return point;
+ const reference=placeAgainstReference(point,e);
+ if(reference)return reference;
+ if(!project.settings.snap||e.shiftKey)return point;
  if(!assetSnapIndex)assetSnapIndex=createSnapIndex(project.features,{visible:f=>f.kind==='road'&&featureVisible(f)});
  return assetSnapIndex.nearest(point,Math.min(3,8/view.scale))||point;
 }
 function assetPreviewFeature(){if(!assetSelection||!assetHover)return null;const f=makeBuildingAssetFeature(assetSelection.pack,assetSelection.asset,assetHover,assetSelection.rotation,'asset-preview');if(scopeId)f.interchangeId=scopeId;return f;}
 function renderAssetPreview(){
  if(tool!=='asset-place')return;const host=$('draftShapes');host.replaceChildren();$('drawingActions').hidden=true;const f=assetPreviewFeature();if(!f)return;
+ renderReferenceFeedback(host);
  const valid=buildingAssetFits(f,SIZE)&&featureVisible(f)&&!project.settings.editor.layers[layerKey(f)].locked,color=valid?'#286c6b':'#c04b43';
  node('path',{d:pathData(buildingAssetLot(f),true),fill:valid?'#c5dab4':'#eab5ac','fill-opacity':.25,stroke:color,'stroke-width':1.2,'vector-effect':'non-scaling-stroke','stroke-dasharray':'5 3','pointer-events':'none'},host);
  node('path',{d:featurePath(f,true),fill:valid?'#4b8293':'#c65a50','fill-rule':'evenodd','fill-opacity':.75,stroke:color,'stroke-width':1.3,'vector-effect':'non-scaling-stroke','pointer-events':'none'},host);
@@ -1481,17 +1961,17 @@ function renderPlacedBuildingAsset(f,host,color){
 }
 function placeBuildingAsset(){
  const f=assetPreviewFeature();if(!f)return;f.id=crypto.randomUUID();f.color='#4b8293';
- if(project.settings.editor.layers[layerKey(f)].locked){toast('对应建筑图层已锁定');return;}if(!featureVisible(f)){toast('请先显示对应的建筑图层');return;}if(!buildingAssetFits(f,SIZE)){toast('建筑占地超出地图边界，请移回图内');return;}
+ if(!canEditFeature(f)){toast(editBlockReason(f));return;}if(!buildingAssetFits(f,SIZE)){toast('建筑占地超出地图边界，请移回图内');return;}
  try{const withAsset=includePlacedAsset(project,assetSelection.pack,assetSelection.asset),valid=prepareEditor({...withAsset,features:[...withAsset.features,f]});checkpoint();project=valid;selected=null;render();persist();if(!assetRepeat){setTool('select');selected=f.id;render();renderProperties();}else toast('已摆放 '+f.name+'，可继续摆放');}catch(error){toast(error.message);}
 }
 function commitPlacedAsset(next){
- const f=getSelected();if(!f||locked(f))return;try{commitFeatureEdit(f,next);changed();}catch(error){toast(error.message);renderProperties();}
+ const f=getSelected();if(!canEditFeature(f))return;try{commitFeatureEdit(f,next);changed();}catch(error){toast(error.message);renderProperties();}
 }
 function renderPlacedAssetProperties(host,f){
- document.querySelector('.right-panel').classList.add('has-selection');const a=f.assetPlacement,disabled=locked(f)?'disabled':'',center=f.poi;
+ document.querySelector('.right-panel').classList.add('has-selection');const a=f.assetPlacement,disabled=!canEditFeature(f)?'disabled':'',center=f.poi;
  const thumb={name:a.assetName,lot:a.lot,rings:[f.points,...(f.additionalParts||[])].map(r=>transformBuildingRing(r.map(p=>[p[0]-center[0],p[1]-center[1]]),[0,0],-a.rotation))};
  host.innerHTML=`<button class="back-layer" id="assetBackLayer">← ${escape(layerName(layerKey(f)))}</button><div class="object-kind">建筑资产 · ${escape(a.packName)}</div><h2 class="property-title">${escape(f.name)}</h2><div class="asset-source-code"><span>来源编号</span><strong>${escape(a.code)}</strong></div>${assetCapacityRows(a)}<div class="asset-object-preview">${assetThumbnail(thumb)}</div><div class="asset-object-metrics"><div><span>地块占地</span><strong>${a.lot.join(' × ')} m</strong></div><div><span>建筑高度</span><strong>${a.height.toFixed(2)} m</strong></div><div><span>建筑投影</span><strong>${a.area.toFixed(1)} m²</strong></div></div><p class="asset-shelf-hint">${disabled?'图层已锁定。':'拖动建筑整体移动，旋转保持真实尺寸。'}</p><label class="field-label" for="placedAssetName">名称</label><input id="placedAssetName" type="text" maxlength="300" value="${escape(f.name)}" ${disabled}><label class="field-label" for="placedAssetColor">显示颜色</label><input id="placedAssetColor" type="color" value="${f.color||'#4b8293'}" ${disabled}><div class="two-fields"><label class="field-label">中心 X (m)<input id="placedAssetX" type="number" step="0.1" value="${center[0].toFixed(2)}" ${disabled}></label><label class="field-label">中心 Y (m)<input id="placedAssetY" type="number" step="0.1" value="${center[1].toFixed(2)}" ${disabled}></label></div><div class="asset-rotation-row"><button id="placedRotateLeft" ${disabled}>↶ 15°</button><label>角度 <input id="placedAssetAngle" type="number" aria-label="建筑旋转角度" step="1" value="${a.rotation}" ${disabled}>°</label><button id="placedRotateRight" ${disabled}>15° ↷</button></div><label class="check-row"><input id="placedAssetLot" type="checkbox" ${a.showLot?'checked':''} ${disabled}>显示占地框</label><div class="asset-placement-actions"><button id="placeSameAsset">摆放同款</button><button id="locatePlacedAsset">定位</button></div><button id="deleteObject" class="danger-button" ${disabled}>删除建筑</button>`;
- $('assetBackLayer').onclick=()=>activateLayer(layerKey(f));$('placedAssetName').onchange=e=>{const n=structuredClone(f);n.name=e.target.value.trim()||a.assetName;commitPlacedAsset(n);};$('placedAssetColor').onchange=e=>{const n=structuredClone(f);n.color=e.target.value;commitPlacedAsset(n);};
+ $('assetBackLayer').onclick=()=>selectFeature(null);$('placedAssetName').onchange=e=>{const n=structuredClone(f);n.name=e.target.value.trim()||a.assetName;commitPlacedAsset(n);};$('placedAssetColor').onchange=e=>{const n=structuredClone(f);n.color=e.target.value;commitPlacedAsset(n);};
  const rotate=n=>{if(Number.isFinite(n))commitPlacedAsset(rotateBuildingAsset(f,n));};$('placedAssetAngle').onchange=e=>rotate(Number(e.target.value));$('placedRotateLeft').onclick=()=>rotate(a.rotation-15);$('placedRotateRight').onclick=()=>rotate(a.rotation+15);
  const move=()=>{const xy=[Number($('placedAssetX').value),Number($('placedAssetY').value)];if(xy.every(Number.isFinite))commitPlacedAsset(moveBuildingAsset(f,xy));};$('placedAssetX').onchange=move;$('placedAssetY').onchange=move;
  $('placedAssetLot').onchange=e=>{const n=structuredClone(f);n.assetPlacement.showLot=e.target.checked;commitPlacedAsset(n);};$('deleteObject').onclick=deleteSelected;
@@ -1579,23 +2059,38 @@ function bindGroupPalette(host){
 
 function layerLabelsToggleHtml(key){
  const e=project.settings.editor,isGroup=GROUPS.some(([id])=>id===key),checked=isGroup?e.groupLabels[key]!==false:e.layers[key]?.labelsVisible!==false;
- const hint=project.settings.notesVisible===false?'左侧“显示名称与标签”总开关已关闭。':!isGroup&&e.groupLabels[groupForLayer(key)]===false?'所属大类的名称和标签已关闭。':'';
- return `<label class="check-row"><input id="layerLabelsVisible" type="checkbox" ${checked?'checked':''}>显示名称和标签</label>${hint?'<p class="muted">'+hint+'</p>':''}`;
+ const hint=project.settings.notesVisible===false?'编辑菜单中的“显示名称与标签”总开关已关闭':!isGroup&&e.groupLabels[groupForLayer(key)]===false?'所属大类的名称和标签已关闭':'显示名称和标签';
+ return `<label class="check-row" title="${hint}"><input id="layerLabelsVisible" type="checkbox" ${checked?'checked':''}>显示名称和标签</label>`;
 }
 
 function syncOriginControls(){
- if(!$('cartoOriginVisible'))return;const e=project.settings.editor,count={carto:0,planning:0};for(const f of project.features)count[originForFeature(f)]++;
- $('cartoOriginVisible').checked=e.origins.carto;$('planningOriginVisible').checked=e.origins.planning;$('builtPlanningVisible').checked=e.showBuiltPlanning;$('cartoOriginLocked').checked=e.lockCarto;
- $('cartoOriginCount').textContent=count.carto+' 个';$('planningOriginCount').textContent=count.planning+' 个';
+ if(!$('cartoOriginVisible'))return;
+ const e=project.settings.editor,count={carto:0,planning:0};
+ for(const f of project.features)if(f.kind!=='reference')count[originForFeature(f)]++;
+ $('cartoOriginVisible').checked=e.origins.carto;$('planningOriginVisible').checked=e.origins.planning;$('cartoOriginLocked').checked=e.lockCarto;
+ $('cartoOriginCount').textContent=count.carto;$('cartoOriginCount').title=count.carto+' 个对象';
+ $('planningOriginCount').textContent=count.planning+' 个';
 }
 for(const [id,key]of [['cartoOriginVisible','carto'],['planningOriginVisible','planning']])$(id).onchange=e=>{checkpoint();project.settings.editor.origins[key]=e.target.checked;changed();};
 $('cartoOriginLocked').onchange=e=>{checkpoint();project.settings.editor.lockCarto=e.target.checked;changed();};
-$('builtPlanningVisible').onchange=e=>{checkpoint();project.settings.editor.showBuiltPlanning=e.target.checked;changed();};
 function renderOriginControls(host,f){
- const carto=originForFeature(f)==='carto',box=document.createElement('div');box.className='object-origin';box.innerHTML=carto?'<strong>Carto 游戏现状</strong><p class="muted">更新 Carto 时，此对象会被替换。要保留设计改动，请先复制为手绘规划。</p><button id="copyToPlanning" class="wide-button">复制为手绘规划</button>':'<strong>手绘规划</strong><label class="check-row"><input id="planningBuilt" type="checkbox" '+(f.planningStatus==='built'?'checked':'')+'>已在游戏中实施</label><p class="muted">已实施对象默认隐藏，可在左侧重新显示；不会自动删除。</p>';
+ const carto=originForFeature(f)==='carto',box=document.createElement('div'),reason=editBlockReason(f);
+ const reference=f.kind==='reference';
+ if(reference&&!reason)return;
+ box.className='object-origin';
+ const layerSwitch=inEditLayer(f)?'':`<button id="switchEditLayer" class="wide-button">切换到对象所在图层</button>`;
+ const canSetStatus=!reason||f.planningStatus==='built'&&inEditLayer(f)&&!locked(f);
+ box.innerHTML=(reason?`<p class="muted">只读 · ${escape(reason)}</p>${layerSwitch}`:'')+(reference?'':carto?`<strong>Carto 游戏现状</strong><p class="muted">更新 Carto 时，此对象会被替换。要保留设计改动，可复制为手绘规划。</p><button id="copyToPlanning" class="wide-button" ${inEditLayer(f)?'':'disabled'}>复制为手绘规划</button>`:`<strong>手绘规划</strong><label class="check-row"><input id="planningBuilt" type="checkbox" ${f.planningStatus==='built'?'checked':''} ${canSetStatus?'':'disabled'}>已在游戏中实施</label><p class="muted">已实施对象默认从地图隐藏，可从图层对象列表找到。</p>`);
  host.prepend(box);
- if(carto)$('copyToPlanning').onclick=()=>{try{const result=copyAsPlanning(project,f.id);checkpoint();project=result.project;activeLayer={key:layerKey(project.features.find(x=>x.id===result.selectedId)),source:'manual'};selected=result.selectedId;selectedNode=null;buildLayers();changed();toast('已复制为手绘规划，后续更新 Carto 不会覆盖此副本');}catch(error){toast(error.message);}};
- else $('planningBuilt').onchange=e=>{checkpoint(featureHistorySnapshot(project,f.id));f.planningStatus=e.target.checked?'built':'planned';changed();};
+ if($('switchEditLayer'))$('switchEditLayer').onclick=()=>{
+  const key=layerKey(f);if(!project.settings.editor.layers[key])return;
+  expandLayerGroup(groupForLayer(key));activateLayer(key,'manual',municipalClass(f));selectFeature(f);
+ };
+ if(carto)$('copyToPlanning').onclick=()=>{
+  if(!inEditLayer(f))return;
+  try{const result=copyAsPlanning(project,f.id);checkpoint();project=result.project;selected=result.selectedId;selectedGroup=null;selectedNode=null;buildLayers();changed();toast('已复制为手绘规划，后续更新 Carto 不会覆盖此副本');}catch(error){toast(error.message);}
+ };
+ else if(!reference)$('planningBuilt').onchange=e=>{if(!canSetStatus)return;checkpoint(featureHistorySnapshot(project,f.id));f.planningStatus=e.target.checked?'built':'planned';changed();};
 }
 async function exportPlanningLayer(){
  if(basePlanningState)return exportVisiblePlanningWorkspace();
@@ -1625,6 +2120,18 @@ async function overlayPlanningFile(file){
 
 function paintDragPreview(){
  if(!drag||!drag.moved||drag.kind==='pan')return;
+ if(drag.kind==='group'){
+  if(!drag.hiddenElements){
+   const ids=new Set(drag.entries.map(({original})=>original.id));
+   const host=$('editShapes');drag.hiddenElements=[];
+   for(const element of svg.querySelectorAll('[data-render-id],[data-id],[data-occludes],[data-junction-roads]')){
+    const data=element.dataset;
+    if(host.contains(element)||![data.renderId,data.id,data.occludes,...(data.junctionRoads?.split(' ')||[])].some(id=>ids.has(id)))continue;
+    drag.hiddenElements.push([element,element.style.visibility]);element.style.visibility='hidden';
+   }
+  }
+  renderSelection();return;
+ }
  const f=project.features.find(x=>x.id===drag.id);if(!f)return;
  if(!drag.hiddenElements){
   drag.hiddenElements=[...svg.querySelectorAll(`[data-render-id="${f.id}"],[data-id="${f.id}"],[data-occludes="${f.id}"],[data-junction-roads~="${f.id}"]`)].filter(n=>!$('editShapes').contains(n));
@@ -1638,16 +2145,27 @@ function paintDragPreview(){
   node('path',{d,fill:poly?style.color:'none',stroke:style.color,'stroke-width':Math.max(.1,style.width-2*style.edgeWidth),'stroke-linecap':'round','stroke-linejoin':'round'},preview);
  }else if(f.geometryType==='point')node('circle',{cx:f.points[0][0],cy:f.points[0][1],screen:{r:6},fill:featureDisplayColor(project,f)},preview);
  else node('path',{d:featurePath(f,true),fill:featureDisplayColor(project,f),'fill-rule':'evenodd','fill-opacity':.35,stroke:'#276554','stroke-width':2,'vector-effect':'non-scaling-stroke'},preview);
- if(!f.assetPlacement)for(const [partIndex,points]of geometryParts(f).entries())for(const [index,p]of points.entries()){
+ if(f.shape)drawGeometryGuides(editorShape(f.shape.type,f.shape.controls,poly),preview);
+ else if(!f.assetPlacement)for(const [partIndex,points]of geometryParts(f).entries())for(const [index,p]of points.entries()){
   const active=partIndex===selectedNode?.partIndex&&index===selectedNode?.index;
   node('circle',{cx:p[0],cy:p[1],screen:{r:active?6:4},fill:'#fff',stroke:'#276554','stroke-width':1.5,'vector-effect':'non-scaling-stroke'},preview);
  }
+ if(referenceFeedback)renderReferenceFeedback(preview);
 }
 const editPreviewScheduler=createEditScheduler(paintDragPreview);
 function clearDragPreview(){editPreviewScheduler.cancel();for(const [n,value]of drag?.hiddenElements||[])n.style.visibility=value;}
 
 function municipalCounts(){const counts=Object.fromEntries(MUNICIPAL_TYPES.map(([id])=>[id,0]));for(const f of project.features){const id=municipalClass(f);if(id)counts[id]++;}return counts;}
-function municipalControlsHtml(){const counts=municipalCounts();return '<div class="municipal-controls">'+MUNICIPAL_TYPES.map(([id,name])=>`<label><input type="checkbox" data-municipal-visible="${id}" ${municipalVisible(project.settings.editor,id)?'checked':''}><button type="button" data-municipal-category="${id}">${name}</button><small>${counts[id]}</small></label>`).join('')+'</div>';}
+function municipalLegendIcon(id){
+ const {color,path}=municipalMarkerStyle(id);
+ return `<svg class="municipal-legend-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="1" y="1" width="18" height="18" rx="4" fill="${color}"/><path d="${path}" transform="translate(2 2)" fill="none" stroke="white" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+function municipalControlsHtml(){
+ const counts=municipalCounts();
+ return '<div class="municipal-controls">'+MUNICIPAL_TYPES.map(([id,name])=>
+  `<label><input type="checkbox" data-municipal-visible="${id}" aria-label="显示${name}" ${municipalVisible(project.settings.editor,id)?'checked':''}><button type="button" data-municipal-category="${id}">${municipalLegendIcon(id)}<span>${name}</span></button><small>${counts[id]}</small></label>`
+ ).join('')+'</div>';
+}
 function bindMunicipalControls(host){
  for(const input of host.querySelectorAll('[data-municipal-visible]'))input.onchange=()=>{checkpoint();project.settings.editor.municipalVisibility[input.dataset.municipalVisible]=input.checked;changed();};
  for(const button of host.querySelectorAll('[data-municipal-category]'))button.onclick=()=>activateLayer('building:municipal','manual',button.dataset.municipalCategory);
@@ -1895,7 +2413,7 @@ function switchPlanningEditor(state){
  projectDirty=state.dirty;
  planningSessions.clear();
  for(const [mode,session]of state.session)planningSessions.set(mode,session);
- draft=[];selected=null;selectedNode=null;drag=null;scopeId='';listQuery='';
+ draft=[];selected=null;selectedGroup=null;activeMunicipalClass=null;drawingShape='free';selectedNode=null;drag=null;scopeId='';listQuery='';
  editRevision++;invalidateEditGeometry();setTool('select',{redraw:false});
  buildLayers();syncUI();render();renderProperties();updateUndo();updateSaveStatus();
  refreshPlanningWorkspace();
@@ -2550,7 +3068,7 @@ function currentNamingPool(){
 }
 function namingTarget(){
  const feature=getSelected();
- if(!feature||locked(feature))return null;
+ if(selectedGroup?.has(selected)||!canEditFeature(feature))return null;
  if(['road','district','zone'].includes(feature.kind))return feature;
  return feature.kind==='building'&&['education','hospital','residential','commercial','industry','landscape','sports','office'].includes(feature.type)?feature:null;
 }

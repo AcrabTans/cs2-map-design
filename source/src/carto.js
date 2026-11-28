@@ -1,5 +1,6 @@
 import {createPlanningProject} from './planning.js';
 import {SIZE,ROADS,prepareEditor,pointInPolygon,layerKey,groupForLayer,originForFeature,ZONES,BUILDINGS,buildingCategory} from './model.js';
+import {municipalCategoryFromTags} from './municipal-facilities.js';
 import {terrainType,readTerrainTiff,checkTerrainExtent,terrainPixels} from './terrain.js';
 import {mergeCartoRoadChains,splitCartoRoad} from './carto-road-chains.js';
 
@@ -49,7 +50,7 @@ export function cartoRoadType(a){
 }
 export function cartoBuildingType(a){
  const text=[a.Category,a.Object,a.Zoning,a.Zone].join(' ').toLowerCase();
- if(/education|school|university|research/.test(text))return 'education';if(/hospital|health|medical/.test(text))return 'hospital';if(/police|prison/.test(text))return 'police';if(/fire|disaster/.test(text))return 'fire';if(/residential|residence|housing/.test(text))return 'residential';if(/industrial|industry|manufactur/.test(text))return 'industry';if(/commercial|office|retail/.test(text))return 'commercial';if(/(?:^|\s)sport|culture|museum/.test(text))return 'sports';if(/decoration|park|landmark|tourism|landscape/.test(text))return 'landscape';if(/utility|transport|government|municipal|electric|water|power|sewage|garbage|road/.test(text))return 'municipal';return 'other';
+ if(/education|school|university|research/.test(text))return 'education';if(/hospital|health|medical/.test(text))return 'hospital';if(/police|prison/.test(text))return 'police';if(/fire|disaster/.test(text))return 'fire';if(/residential|residence|housing/.test(text))return 'residential';if(/industrial|industry|manufactur/.test(text))return 'industry';if(/commercial|office|retail/.test(text))return 'commercial';if(/(?:^|\s)sport|culture|museum/.test(text))return 'sports';if(municipalCategoryFromTags(a.Category))return 'municipal';if(/decoration|park|landmark|tourism|landscape/.test(text))return 'landscape';if(/utility|transport|government|municipal|electric|water|power|sewage|garbage|road/.test(text))return 'municipal';return 'other';
 }
 export function cartoRouteType(a){const t=String(a.Transport||a.Category||a.Route||'').toLowerCase();return /metro|subway/.test(t)?'metro':/train|rail/.test(t)?'train':/ship|boat|water|ferry/.test(t)?'water':/air|plane|helicopter/.test(t)?'air':/bus/.test(t)?'bus':'other';}
 function zoningType(a){const z=String(a.Zoning||''),high=/high/i.test(a.Density||a.Name||''),medium=/medium/i.test(a.Density||a.Name||'');return /residential/i.test(z)&&/commercial/i.test(z)?(high?'high-mix':'mid-mix'):/residential/i.test(z)?(high?'high-res':medium?'mid-res':'villa'):/industrial/i.test(z)?'industry':/office/i.test(z)?'office':/commercial/i.test(z)?'commerce':'future';}

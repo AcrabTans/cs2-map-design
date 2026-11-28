@@ -1,4 +1,6 @@
 import {validateBuildingPacks,validateBuildingPlacement} from './building-assets.js';
+import {EDITOR_SHAPES,editorShape} from './editor-geometry.js';
+import {MUNICIPAL_CATALOG,municipalCategoryFromTags,classifyMunicipalName,municipalMarkerStyle} from './municipal-facilities.js';
 export const SIZE=14336;
 export const ROADS=[
  {id:'rail',name:'铁路',color:'#222222',width:16,corridor:40,dash:true},
@@ -74,13 +76,15 @@ export function insertGeometryNodes(feature,hits){
   parts[partIndex]=points;
  }
  if(!byPart.size)return feature;
- return {...feature,points:parts[0],...(feature.additionalParts?{additionalParts:parts.slice(1)}:{})};
+ const updated={...feature,points:parts[0],...(feature.additionalParts?{additionalParts:parts.slice(1)}:{})};
+ delete updated.shape;
+ return updated;
 }
 export function initialProject(){return {version:2,mapSize:SIZE,title:'地图工程',assetPacks:[],basemaps:[],rasters:[],features:[],notes:'',settings:{base:'none',baseOpacity:100,zoneOpacity:32,grid:false,snap:true,zonesVisible:true,zonesLocked:false,notesVisible:true,corridors:true,districtsVisible:true,planView:'detail',protectExistingZones:true,showNewZones:true,showNewRoads:true,layers:Object.fromEntries(ROADS.map(r=>[r.id,{visible:true,locked:false}]))}}}
 export function validateProject(data){
  if(!data||![1,2].includes(data.version)||![13000,SIZE].includes(data.mapSize)||!Array.isArray(data.features))throw Error('不是有效的地图规划工程');
  const ids=new Set();
- for(const f of data.features){if(!f||typeof f.id!=='string'||ids.has(f.id)||!['road','zone','note','district','building','interchange','route'].includes(f.kind))throw Error('对象类型或编号无效');ids.add(f.id);if(!Array.isArray(f.points)||f.points.length>(5000)||f.points.length<(isPolygonFeature(f)?3:['road','route'].includes(f.kind)?2:1))throw Error('对象节点数量无效');for(const p of f.points)if(!Array.isArray(p)||p.length!==2||p.some(n=>!Number.isFinite(n)||n<0||n>data.mapSize))throw Error('节点超出地图范围');if(f.kind==='district'&&!/^#[0-9a-f]{6}$/i.test(f.color||''))throw Error('片区颜色无效');if(f.kind==='road'&&!ROADS.some(r=>r.id===f.type))throw Error('道路类型无效');if(f.kind==='zone'&&!ZONES.some(g=>g[1].some(z=>z[0]===f.type)))throw Error('区划类型无效');if(f.kind==='road'&&(!Number.isFinite(f.width)||f.width<1||f.width>1000||!Number.isFinite(f.corridor)||f.corridor<f.width||f.corridor>2000))throw Error('道路宽度或走廊宽度无效');if(typeof f.name!=='string'||f.name.length>300||typeof f.notes!=='string'||f.notes.length>20000)throw Error('名称或备注无效');if(f.kind==='road'&&!['ground','bridge','tunnel','elevated'].includes(f.structure))throw Error('道路结构无效');}
+ for(const f of data.features){if(!f||typeof f.id!=='string'||ids.has(f.id)||!['road','zone','note','district','building','interchange','route','reference'].includes(f.kind))throw Error('对象类型或编号无效');ids.add(f.id);if(!Array.isArray(f.points)||f.points.length>(5000)||f.points.length<(isPolygonFeature(f)?3:['road','route'].includes(f.kind)?2:1))throw Error('对象节点数量无效');for(const p of f.points)if(!Array.isArray(p)||p.length!==2||p.some(n=>!Number.isFinite(n)||n<0||n>data.mapSize))throw Error('节点超出地图范围');if(f.kind==='district'&&!/^#[0-9a-f]{6}$/i.test(f.color||''))throw Error('片区颜色无效');if(f.kind==='road'&&!ROADS.some(r=>r.id===f.type))throw Error('道路类型无效');if(f.kind==='zone'&&!ZONES.some(g=>g[1].some(z=>z[0]===f.type)))throw Error('区划类型无效');if(f.kind==='road'&&(!Number.isFinite(f.width)||f.width<1||f.width>1000||!Number.isFinite(f.corridor)||f.corridor<f.width||f.corridor>2000))throw Error('道路宽度或走廊宽度无效');if(typeof f.name!=='string'||f.name.length>300||typeof f.notes!=='string'||f.notes.length>20000)throw Error('名称或备注无效');if(f.kind==='road'&&!['ground','bridge','tunnel','elevated'].includes(f.structure))throw Error('道路结构无效');}
  const clean=initialProject();clean.mapSize=data.mapSize;if(typeof data.title==='string')clean.title=data.title.slice(0,300);
  if(data.proposal&&typeof data.proposal.revision==='string'){
   clean.proposal={revision:data.proposal.revision.slice(0,100),source:String(data.proposal.source||'').slice(0,300)};
@@ -106,7 +110,7 @@ export function interiorPoint(points){
  return best?.p||points[0];
 }
 // Editor v2 keeps legacy feature geometry untouched; missing metadata has defaults.
-export const GROUPS=[['area','地块 Area'],['network','路网 Network'],['building','建筑 Building'],['route','交通 Route'],['zoning','用地 Zoning'],['terrain','地形 Terrain']];
+export const GROUPS=[['area','地块 Area'],['network','路网 Network'],['building','建筑 Building'],['route','交通 Route'],['zoning','用地 Zoning'],['terrain','地形 Terrain'],['reference','参考点位']];
 export const BLOCK_CLASSES=[
  ['residential','居住','#70a485'],['commercial','商业','#d9a15e'],['mixed','商住混合','#68a6a2'],
  ['office','办公','#7d9cce'],['industrial','工业与产业','#b99973'],['transport','交通与物流','#9595b5'],
@@ -115,25 +119,25 @@ export const BLOCK_CLASSES=[
 ];
 export const BUILDINGS=[['education','教育'],['residential','住宅'],['hospital','医疗'],['police','警务'],['fire','消防'],['municipal','市政'],['industry','产业'],['commercial','商业'],['sports','文化体育'],['landscape','景观'],['other','其他建筑']];
 export const buildingCategory=type=>({school:'education',university:'education',government:'municipal',utility:'municipal',transport:'municipal'}[type]||type);
-export const MUNICIPAL_TYPES=[['rail-facilities','铁路车站与车辆段'],['air-facilities','机场与航空设施'],['water-facilities','港口与水运设施'],['transit-facilities','公交与地铁设施'],['utilities','供电、水务与环卫'],['civic','政务与其他市政建筑'],['rail-stops','火车站牌'],['air-stops','航空停靠点'],['transit-stops','公交、地铁等站点'],['water-stops','水运停靠点'],['traffic-lights','红绿灯'],['other-points','其他市政点位']];
+export const MUNICIPAL_TYPES=MUNICIPAL_CATALOG;
 export function municipalClass(f){
  if(f?.kind!=='building'||buildingCategory(f.type)!=='municipal')return null;
  if(isTrafficLight(f))return 'traffic-lights';
- const cat=String(f.attributes?.Category||f.poiAttributes?.Category||''),text=[f.name,cat,f.attributes?.Asset,f.outlineAttributes?.Asset].filter(Boolean).join(' ');
- if(/Stop.*(?:Train|Rail)|火车站牌/i.test(cat+' '+f.name))return 'rail-stops';
- if(/Stop.*(?:Airplane|Helicopter)|Helipad/i.test(cat))return 'air-stops';
- if(/Stop.*(?:Ship|Ferry|Boat)/i.test(cat))return 'water-stops';
- if(/Stop|站位预留|地铁站点/i.test(cat+' '+f.name))return 'transit-stops';
- if(/机场|航站|航空|停机|机坪|airport|airfield|hangar/i.test(text))return 'air-facilities';
- if(/火车|铁路|轨道总站|railway|railroad|train.*(?:station|depot)/i.test(text))return 'rail-facilities';
- if(/港口|码头|船坞|harbo[u]?r|seaport|ferry/i.test(text))return 'water-facilities';
- if(/公交|地铁|换乘|巴士|bus|subway|metro/i.test(text))return 'transit-facilities';
- if(/水厂|取水|泵站|污水|变电|配电|发电|供电|电厂|垃圾|回收|环卫|water|sewage|power|electric|garbage|recycl/i.test(text))return 'utilities';
- return f.geometryType==='point'?'other-points':'civic';
+ const point=f.geometryType==='point';
+ const category=[f.attributes?.Category,f.poiAttributes?.Category,f.outlineAttributes?.Category].filter(Boolean).join(',');
+ const known=municipalCategoryFromTags(category,point);
+ if(known)return known;
+ const name=[f.name,f.attributes?.Asset,f.poiAttributes?.Asset,f.outlineAttributes?.Asset].filter(Boolean).join(' ');
+ const named=classifyMunicipalName(name,point);
+ if(named==='civic'||named==='other-points'){
+  if(/\btransportation\b|transportationgeneric|buildingbicycle/i.test(category))return 'transit-facilities';
+  if(/\bpower\b|\butility\b|\bwater\b/i.test(category))return 'utilities';
+ }
+ return named;
 }
 export const municipalVisible=(editor,id)=>id!=='traffic-lights'?editor.municipalVisibility?.[id]!==false:editor.municipalVisibility?.[id]===true;
 export const groupForLayer=key=>key==='zone'||key.startsWith('district:')?'area':key.startsWith('road:')?'network':key.split(':')[0];
-export const layerKeysForGroup=group=>group==='area'?['district:large','district:small','zone','district:tile']:group==='network'?[...ROADS.filter(r=>r.id!=='bus').map(r=>'road:'+r.id),'road:interchange']:group==='building'?BUILDINGS.map(([id])=>'building:'+id):group==='route'?['route:bus','route:metro','route:train','route:water','route:air','route:other']:group==='terrain'?['terrain:elevation','terrain:depth','terrain:landwater','terrain:topographic']:group==='zoning'?['zoning:boundary']:[];
+export const layerKeysForGroup=group=>group==='area'?['district:large','district:small','zone','district:tile']:group==='network'?[...ROADS.filter(r=>r.id!=='bus').map(r=>'road:'+r.id),'road:interchange']:group==='building'?BUILDINGS.map(([id])=>'building:'+id):group==='route'?['route:bus','route:metro','route:train','route:water','route:air','route:other']:group==='terrain'?['terrain:elevation','terrain:depth','terrain:landwater','terrain:topographic']:group==='zoning'?['zoning:boundary']:group==='reference'?['reference:point']:[];
 export function blockClass(f){
  if(BLOCK_CLASSES.some(c=>c[0]===f.category))return f.category;
  const t=f.type;
@@ -151,13 +155,13 @@ export function blockClass(f){
 }
 export const classInfo=f=>BLOCK_CLASSES.find(c=>c[0]===blockClass(f));
 export const featureSource=(project,f)=>f.source||((project.proposal?.newFeatureIds||[]).includes(f.id)?'ai':'manual');
-export const layerKey=f=>f.kind==='zone'&&f.carto?.layers?.includes('Zoning_Boundary')?'zoning:boundary':f.kind==='route'?`route:${f.type}`:f.kind==='road'?(f.type==='bus'?'route:bus':`road:${f.type}`):f.kind==='district'?`district:${f.level||'large'}`:f.kind==='interchange'?'road:interchange':f.kind==='building'?`building:${buildingCategory(f.type)}`:f.kind;
+export const layerKey=f=>f.kind==='reference'?'reference:point':f.kind==='zone'&&f.carto?.layers?.includes('Zoning_Boundary')?'zoning:boundary':f.kind==='route'?`route:${f.type}`:f.kind==='road'?(f.type==='bus'?'route:bus':`road:${f.type}`):f.kind==='district'?`district:${f.level||'large'}`:f.kind==='interchange'?'road:interchange':f.kind==='building'?`building:${buildingCategory(f.type)}`:f.kind;
 export function defaultLayerColor(key){
- const colors={'district:large':'#477c89','district:small':'#83a67b','district:tile':'#a8b1ba','zone':'#70a485','road:interchange':'#b56e4e','building:education':'#bb9247','building:residential':'#70a485','building:hospital':'#d87982','building:police':'#5c84b5','building:fire':'#d36c4c','building:municipal':'#8b79ae','building:industry':'#ad9469','building:commercial':'#d7a151','building:sports':'#a67fb2','building:landscape':'#6f9b68','building:other':'#8b9ba5','route:bus':'#2695bc','route:metro':'#a461cd','route:train':'#c27843','route:water':'#3aa5a1','route:air':'#c985ae','route:other':'#7e91a1','zoning:boundary':'#70a485'};
+ const colors={'reference:point':'#78538b','district:large':'#477c89','district:small':'#83a67b','district:tile':'#a8b1ba','zone':'#70a485','road:interchange':'#b56e4e','building:education':'#bb9247','building:residential':'#70a485','building:hospital':'#d87982','building:police':'#5c84b5','building:fire':'#d36c4c','building:municipal':'#8b79ae','building:industry':'#ad9469','building:commercial':'#d7a151','building:sports':'#a67fb2','building:landscape':'#6f9b68','building:other':'#8b9ba5','route:bus':'#2695bc','route:metro':'#a461cd','route:train':'#c27843','route:water':'#3aa5a1','route:air':'#c985ae','route:other':'#7e91a1','zoning:boundary':'#70a485'};
  return colors[key]||(key.startsWith('road:')?roadInfo(key.split(':')[1]).color:'#658c8b');
 }
 export function featureDisplayColor(project,f){
- return project.settings.editor?.layers[layerKey(f)]?.color||f.color||(f.kind==='zone'?classInfo(f)[2]:defaultLayerColor(layerKey(f)));
+ return project.settings.editor?.layers[layerKey(f)]?.color||f.color||municipalMarkerStyle(municipalClass(f))?.color||(f.kind==='zone'?classInfo(f)[2]:defaultLayerColor(layerKey(f)));
 }
 export function roadStyleColors(color){
  const rgb=color.slice(1).match(/../g).map(n=>parseInt(n,16));
@@ -166,7 +170,7 @@ export function roadStyleColors(color){
 }
 export function editorDefaults(){
  const keys=[...GROUPS.flatMap(([g])=>layerKeysForGroup(g)),'building','road:bus'];
- return {municipalVisibility:Object.fromEntries(MUNICIPAL_TYPES.map(([id])=>[id,id!=='traffic-lights'])),visibilityDefaultsVersion:1,origins:{carto:true,planning:true},lockCarto:true,showBuiltPlanning:false,groups:Object.fromEntries(GROUPS.map(([k])=>[k,k!=='zoning'])),groupLabels:Object.fromEntries(GROUPS.map(([k])=>[k,false])),layers:Object.fromEntries(keys.map(k=>[k,{visible:!['terrain:landwater','terrain:topographic','building:municipal'].includes(k),locked:false,manual:true,ai:true,labelsVisible:false}])),roadStyles:Object.fromEntries(ROADS.map(r=>[r.id,{...roadStyleColors(r.color),width:r.width,corridor:r.corridor}])),structures:{ground:true,elevated:true,bridge:true,tunnel:true},simpleTerrain:{landColor:'#d8edcf',waterColor:'#66b8e5',opacity:100},topographicTerrain:{seaLevel:null,opacity:100},networkOutlines:false,networkStyleVersion:2,widthMode:'actual',railSegment:24,routeWidth:2,pngSize:4096,labelSize:11};
+ return {municipalVisibility:Object.fromEntries(MUNICIPAL_TYPES.map(([id])=>[id,id!=='traffic-lights'])),visibilityDefaultsVersion:1,origins:{carto:true,planning:true},lockCarto:true,referenceAlign:false,geometryGuides:true,showBuiltPlanning:false,groups:Object.fromEntries(GROUPS.map(([k])=>[k,k!=='zoning'])),groupLabels:Object.fromEntries(GROUPS.map(([k])=>[k,k==='reference'])),layers:Object.fromEntries(keys.map(k=>[k,{visible:!['terrain:landwater','terrain:topographic','building:municipal'].includes(k),locked:false,manual:true,ai:true,labelsVisible:k==='reference:point'}])),roadStyles:Object.fromEntries(ROADS.map(r=>[r.id,{...roadStyleColors(r.color),width:r.width,corridor:r.corridor}])),structures:{ground:true,elevated:true,bridge:true,tunnel:true},simpleTerrain:{landColor:'#d8edcf',waterColor:'#66b8e5',opacity:100},topographicTerrain:{seaLevel:null,opacity:100},networkOutlines:false,networkStyleVersion:2,widthMode:'actual',railSegment:24,routeWidth:2,pngSize:4096,labelSize:11};
 }
 export const editorSettings=p=>p.settings.editor||editorDefaults();
 export function isTrafficLight(f){
@@ -177,6 +181,7 @@ export function isTrafficLight(f){
 export const originForFeature=f=>Array.isArray(f.carto?.layers)&&f.carto.layers.length?'carto':'planning';
 export const lockedInEditor=(p,f)=>editorSettings(p).layers[layerKey(f)]?.locked===true||(originForFeature(f)==='carto'&&editorSettings(p).lockCarto!==false);
 export function visibleInEditor(p,f){
+ if(f.kind==='reference'){const editor=editorSettings(p);return editor.groups.reference!==false&&editor.layers['reference:point'].visible!==false;}
  const municipal=municipalClass(f);if(municipal&&!municipalVisible(editorSettings(p),municipal))return false;
  const settings=editorSettings(p);if(settings.origins?.[originForFeature(f)]===false)return false;if(originForFeature(f)==='planning'&&f.planningStatus==='built'&&settings.showBuiltPlanning!==true)return false;
  const e=editorSettings(p),g=groupForLayer(layerKey(f));
@@ -233,10 +238,17 @@ export function validateEditorProject(clean,data){
   if(f.kind==='building'&&!BUILDINGS.some(b=>b[0]===buildingCategory(f.type)))throw Error('功能建筑类型无效');
   if(f.kind==='building'&&f.geometryType!==undefined&&!['polygon','point'].includes(f.geometryType))throw Error('建筑几何类型无效');
   if(f.kind==='building'&&f.geometryType==='point'&&f.points.length!==1)throw Error('POI 点对象必须只有一个位置');
+  if(f.kind==='reference'&&(f.geometryType!=='point'||f.points.length!==1))throw Error('参考点位必须只有一个位置');
   if(f.poi!==undefined&&(!Array.isArray(f.poi)||f.poi.length!==2||f.poi.some(n=>!Number.isFinite(n)||n<0||n>data.mapSize)))throw Error('建筑POI超出地图范围');
   if(f.attributes!==undefined&&(!f.attributes||typeof f.attributes!=='object'||Array.isArray(f.attributes)||Object.keys(f.attributes).length>100||Object.entries(f.attributes).some(([k,v])=>k.length>100||!['string','number','boolean'].includes(typeof v)&&v!==null||typeof v==='string'&&v.length>20000||typeof v==='number'&&!Number.isFinite(v))))throw Error('对象扩展属性无效');
   if(f.kind==='route'&&!['bus','metro','train','water','air','other'].includes(f.type))throw Error('交通线路分类无效');
   if(f.kind==='road'&&f.geometryType!==undefined&&!['line','polygon'].includes(f.geometryType))throw Error('路网几何类型无效');
+  if(f.shape!==undefined){
+   const shape=f.shape,polygon=isPolygonFeature(f);
+   if(!shape||!Object.hasOwn(EDITOR_SHAPES,shape.type)||!Array.isArray(shape.controls)||
+     !shape.controls.every(p=>Array.isArray(p)&&p.length===2&&p.every(n=>Number.isFinite(n)&&n>=0&&n<=data.mapSize))||
+     (!polygon&&f.kind!=='road')||f.assetPlacement||polygon&&shape.type==='line'||!editorShape(shape.type,shape.controls,polygon))throw Error('基础图形控制点无效');
+  }
   for(const key of ['additionalParts','outlineParts'])if(f[key]!==undefined){if(!Array.isArray(f[key])||f[key].length>1000||f[key].some(ps=>!Array.isArray(ps)||ps.length<3||ps.length>5000||ps.some(p=>!Array.isArray(p)||p.length!==2||p.some(n=>!Number.isFinite(n)||n<0||n>data.mapSize))))throw Error('Carto 多段轮廓无效');}
   for(const key of ['outlineAttributes','poiAttributes'])if(f[key]!==undefined){const a=f[key];if(!a||typeof a!=='object'||Array.isArray(a)||Object.keys(a).length>100||Object.entries(a).some(([k,v])=>k.length>100||v!==null&&!['string','number','boolean'].includes(typeof v)||typeof v==='number'&&!Number.isFinite(v)||typeof v==='string'&&v.length>20000))throw Error('Carto 附加属性无效');}
   if(f.carto?.segments!==undefined){const segments=f.carto.segments,validPoints=(ps,min)=>Array.isArray(ps)&&ps.length>=min&&ps.length<=5000&&ps.every(p=>Array.isArray(p)&&p.length===2&&p.every(n=>Number.isFinite(n)&&n>=0&&n<=data.mapSize));
@@ -277,7 +289,12 @@ export function validateEditorProject(clean,data){
  if(src){
   for(const k of ['carto','planning'])if(typeof src.origins?.[k]==='boolean')e.origins[k]=src.origins[k];
   if(typeof src.lockCarto==='boolean')e.lockCarto=src.lockCarto;
-  for(const [id]of MUNICIPAL_TYPES)if(typeof src.municipalVisibility?.[id]==='boolean')e.municipalVisibility[id]=src.municipalVisibility[id];
+  if(typeof src.referenceAlign==='boolean')e.referenceAlign=src.referenceAlign;
+  if(typeof src.geometryGuides==='boolean')e.geometryGuides=src.geometryGuides;
+  for(const [id,,,,previous] of MUNICIPAL_TYPES){
+   const visible=src.municipalVisibility?.[id]??src.municipalVisibility?.[previous];
+   if(typeof visible==='boolean')e.municipalVisibility[id]=visible;
+  }
   if(typeof src.showBuiltPlanning==='boolean')e.showBuiltPlanning=src.showBuiltPlanning;
   if(!('area' in (src.groups||{}))){
    for(const k of ['district:large','district:small'])e.layers[k].visible=src.groups?.district!==false;
@@ -314,7 +331,7 @@ export function prepareEditor(project){
  // Correct the physical extent while keeping every object aligned to its basemap.
  if(p.mapSize!==SIZE){
   const ratio=SIZE/p.mapSize;
-  for(const f of p.features){f.points=f.points.map(point=>point.map(value=>value*ratio));for(const key of ['additionalParts','outlineParts'])if(f[key])f[key]=f[key].map(ps=>ps.map(point=>point.map(value=>value*ratio)));if(f.poi)f.poi=f.poi.map(value=>value*ratio);}
+  for(const f of p.features){f.points=f.points.map(point=>point.map(value=>value*ratio));for(const key of ['additionalParts','outlineParts'])if(f[key])f[key]=f[key].map(ps=>ps.map(point=>point.map(value=>value*ratio)));if(f.shape)f.shape.controls=f.shape.controls.map(point=>point.map(value=>value*ratio));if(f.poi)f.poi=f.poi.map(value=>value*ratio);}
   for(const interchange of p.proposal?.interchanges||[])interchange.centre=interchange.centre.map(value=>value*ratio);
   p.mapSize=SIZE;
  }

@@ -40,7 +40,7 @@ test('road drag paints only the edited road, hides its old casing and restores i
  const app=fs.readFileSync(new URL('../src/app.js',import.meta.url),'utf8'),part=app.slice(app.indexOf('function paintDragPreview(){'),app.indexOf('function municipalCounts(){'));
  const project=prepareEditor(initialProject());project.features=[{id:'moving',kind:'road',type:'arterial',structure:'ground',width:40,corridor:72,points:[[100,100],[200,200]],name:'A'}];
  const old={style:{visibility:''}},host={children:[],contains:()=>false,replaceChildren(){this.children=[];}};
- const context={project,drag:{id:'moving',moved:true,kind:'node'},selectedNode:0,view:{scale:1},svg:{querySelectorAll:()=>[old]},$:()=>host,createEditScheduler:paint=>({cancel(){},flush:paint}),networkDisplay,geometryParts,isPolygonFeature:()=>false,featurePath:f=>JSON.stringify(f.points),featureDisplayColor:()=>'',node:(tag,attrs,parent)=>{const n={tag,attrs,children:[]};parent.children.push(n);return n;}};
+ const context={project,referenceFeedback:null,drag:{id:'moving',moved:true,kind:'node'},selectedNode:0,view:{scale:1},svg:{querySelectorAll:()=>[old]},$:()=>host,createEditScheduler:paint=>({cancel(){},flush:paint}),networkDisplay,geometryParts,isPolygonFeature:()=>false,featurePath:f=>JSON.stringify(f.points),featureDisplayColor:()=>'',node:(tag,attrs,parent)=>{const n={tag,attrs,children:[]};parent.children.push(n);return n;}};
  vm.createContext(context);vm.runInContext(part,context);
  for(let i=0;i<100;i++){project.features[0].points[0][0]=100+i;context.paintDragPreview();}
  assert.equal(old.style.visibility,'hidden');assert.equal(host.children.length,1);
